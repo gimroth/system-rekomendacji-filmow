@@ -48,3 +48,18 @@ CREATE TABLE ratings (
 
     UNIQUE(user_id, movie_id)
 );
+
+-- USER_PREFERENCES
+CREATE TABLE user_preferences (
+    user_id             INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+
+    preferred_genres    VARCHAR(500) NOT NULL,
+
+    weight_story        INTEGER NOT NULL CHECK (weight_story BETWEEN 1 AND 5),
+    weight_acting       INTEGER NOT NULL CHECK (weight_acting BETWEEN 1 AND 5),
+    weight_visuals      INTEGER NOT NULL CHECK (weight_visuals BETWEEN 1 AND 5),
+    weight_sound        INTEGER NOT NULL CHECK (weight_sound BETWEEN 1 AND 5),
+    weight_direction    INTEGER NOT NULL CHECK (weight_direction BETWEEN 1 AND 5),
+
+    created_at          TIMESTAMP DEFAULT NOW()
+);
