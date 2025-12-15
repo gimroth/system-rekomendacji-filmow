@@ -1,0 +1,47 @@
+<nav class="max-w-7xl mx-auto mb-8 bg-gray-800 rounded-xl shadow-2xl border border-gray-700 p-4 flex justify-between items-center">
+
+    <div class="flex items-center gap-8">
+        <div class="text-2xl font-bold text-white tracking-wide cursor-pointer hover:opacity-80 transition" onclick="window.location.href='/home'">
+            Movie<span class="text-blue-500">Rec</span>
+        </div>
+
+        <div class="hidden md:flex gap-6 text-sm font-semibold">
+            <a href="/home" class="text-gray-300 hover:text-white hover:text-blue-400 transition">Przeglądaj</a>
+            <a href="/rankings" class="text-gray-300 hover:text-white hover:text-blue-400 transition">Rankingi</a>
+        </div>
+    </div>
+
+    <div id="auth-section" class="flex items-center gap-4">
+        </div>
+</nav>
+
+<script>
+    function updateAuthUI() {
+        const token = localStorage.getItem('accessToken');
+        const authSection = document.getElementById('auth-section');
+        if (!authSection) return;
+
+        if (token) {
+            authSection.innerHTML = `
+                <button onclick="logout()" class="text-red-400 hover:text-red-300 text-sm font-semibold transition border border-red-900/50 px-3 py-1 rounded bg-red-900/10">
+                    Wyloguj
+                </button>
+            `;
+        } else {
+            authSection.innerHTML = `
+                <a href="/login" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2 px-4 rounded-lg transition shadow-lg shadow-blue-900/50">
+                    Zaloguj
+                </a>
+            `;
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        window.location.href = '/login';
+    }
+
+    // Uruchom przy każdym załadowaniu navbara
+    document.addEventListener("DOMContentLoaded", updateAuthUI);
+</script>

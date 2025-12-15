@@ -3,12 +3,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
-from app.routers import auth, admin, preferences
+from app.routers import auth, admin, preferences, movies
 from app.models.user import User
 from app.dependencies import get_current_admin
+from fastapi import Request
+from fastapi.templating import Jinja2Templates
 
 Base.metadata.create_all(bind=engine)
 
+templates = Jinja2Templates(directory="templates")
 app = FastAPI(title="System Rekomendacji Filmów")
 
 app.add_middleware(
@@ -24,6 +27,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
+app.include_router(movies.router)
 
 def mock_get_current_admin():
     # Udajemy, że zawsze jest zalogowany admin
@@ -32,29 +36,31 @@ def mock_get_current_admin():
 app.dependency_overrides[get_current_admin] = mock_get_current_admin
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page():
-    try:
-        with open("static/index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return HTMLResponse("<h1>Brak pliku index.html</h1>", status_code=404)
+async def login_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/home", response_class=HTMLResponse)
+async def home_page(request: Request):
+    return templates.TemplateResponse("home.html", {"request": request})
+
+@app.get("/rankings", response_class=HTMLResponse)
+async def rankings_page(request: Request):
+    return templates.TemplateResponse("rankings.html", {"request": request})
+
+@app.get("/movie", response_class=HTMLResponse)
+async def movie_detail_page(request: Request):
+    return templates.TemplateResponse("movie.html", {"request": request})
 
 @app.get("/admin-panel", response_class=HTMLResponse)
-async def admin_page():
-    try:
-        with open("static/admin.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return HTMLResponse("<h1>Brak pliku static/admin.html</h1>", status_code=404)
+async def admin_page(request: Request):
+    # Admin ma swój navbar wewnątrz pliku, więc może zostać jak jest,
+    # albo też możesz go przenieść do templates.
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 @app.get("/onboarding", response_class=HTMLResponse)
-async def preferences_page():
-    try:
-        with open("static/preferences.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return HTMLResponse(content="<h1>Błąd: Plik preferences.html nie znaleziony!</h1>", status_code=404)
+async def preferences_page(request: Request):
+    return templates.TemplateResponse("preferences.html", {"request": request})
 
 @app.get("/")
 def root():
-    return {"message": "API działa! Przejdź do /admin-panel"}
+    return {"message": "API działa!"}
