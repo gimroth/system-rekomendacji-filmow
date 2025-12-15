@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strona Główna - System Rekomendacji</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-gray-100 p-4 md:p-8">
+
+    {% include "navbar.html" %}
+
+    <div class="max-w-7xl mx-auto mb-8 bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+        <h2 class="text-xl font-bold text-gray-200 mb-4">Znajdź film dla siebie</h2>
+        <div class="flex flex-col md:flex-row gap-4">
+            <input type="text" id="searchInput" placeholder="Wpisz tytuł..."
+                   class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400">
+
+            <select id="genreSelect"
+                    class="px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500">
+                <option value="Wszystkie">Wszystkie Gatunki</option>
+            </select>
+
+            <button onclick="searchMovies()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-lg transition shadow-md">
+                Szukaj
+            </button>
+        </div>
+    </div>
+
+    <div id="moviesGrid" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+        </div>
+
+    <div class="max-w-7xl mx-auto mt-8 flex justify-center items-center gap-4 pb-8">
+        <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 border border-gray-600 text-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-600 transition">Poprzednia</button>
+        <span id="pageInfo" class="text-gray-400 font-mono">Strona 1</span>
+        <button id="nextBtn" onclick="changePage(1)" class="px-4 py-2 bg-blue-600 border border-blue-500 text-white rounded-lg hover:bg-blue-700 transition">Następna</button>
+    </div>
+
+<script>
+    const API_URL = "http://127.0.0.1:8000";
+    let currentPage = 1;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadGenres();
+        loadMovies();
+    });
+
+    async function loadGenres() {
+        try {
+            const res = await fetch(`${API_URL}/movies/genres`);
+            const genres = await res.json();
+            const select = document.getElementById('genreSelect');
+            genres.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g;
+                opt.innerText = g;
+                select.appendChild(opt);
+            });
+        } catch (e) { console.error("Błąd gatunków", e); }
+    }
+
+    async function searchMovies() { currentPage = 1; loadMovies(); }
+    async function changePage(d) { currentPage += d; loadMovies(); }
+
+    async function loadMovies() {
+        const query = document.getElementById('searchInput').value;
+        const genre = document.getElementById('genreSelect').value;
+        const grid = document.getElementById('moviesGrid');
+
+        grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400 animate-pulse">Ładowanie filmów...</div>';
+
+        let url = `${API_URL}/movies/?page=${currentPage}&limit=10`;
+        if(query) url += `&search=${encodeURIComponent(query)}`;
+        if(genre !== "Wszystkie") url += `&genre=${encodeURIComponent(genre)}`;
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+
+            grid.innerHTML = "";
+            if(data.data.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-500">Brak wyników.</div>';
+                return;
+            }
+
+            data.data.forEach(m => {
+                const poster = m.poster_url || "https://via.placeholder.com/300x450?text=No+Poster";
+                grid.innerHTML += `
+                    <div onclick="window.location.href='/movie?id=${m.id}'"
+                         class="bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group">
+                        <div class="relative aspect-[2/3]">
+                            <img src="${poster}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition">
+                            <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
+                                ★ ${m.rating}
+                            </div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-white text-sm line-clamp-1 group-hover:text-blue-400 transition">${m.title}</h3>
+                            <p class="text-xs text-gray-400 mt-1">${m.year || "N/A"}</p>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('pageInfo').innerText = `Strona ${data.page} z ${data.pages}`;
+            document.getElementById('prevBtn').disabled = data.page <= 1;
+            document.getElementById('nextBtn').disabled = data.page >= data.pages;
+
+        } catch(e) { console.error(e); }
+    }
+</script>
+</body>
+</html>

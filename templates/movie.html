@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Szczegóły Filmu</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
+        .backdrop-gradient { background: linear-gradient(to top, #1f2937 5%, transparent 100%); }
+
+        nav {
+            background-color: rgba(17, 24, 39, 0.4) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(75, 85, 99, 0.6) !important;
+        }
+    </style>
+</head>
+<body class="text-gray-100 relative">
+
+    <div class="absolute top-0 left-0 w-full z-50 p-4 md:p-8">
+        {% include "navbar.html" %}
+    </div>
+
+    <div id="loading" class="h-screen flex items-center justify-center text-blue-500 font-bold animate-pulse text-lg">
+        Ładowanie danych...
+    </div>
+
+    <div id="content" class="hidden pb-12">
+
+        <div class="relative w-full h-[70vh]">
+            <div id="backdropImage" class="absolute inset-0 bg-cover bg-center opacity-60"></div>
+            <div class="absolute inset-0 bg-black/40 backdrop-gradient"></div>
+
+            <div class="absolute bottom-0 left-0 w-full p-6 md:p-12 max-w-7xl mx-auto flex flex-col md:flex-row items-end gap-8">
+                <img id="posterImage" src="" class="hidden md:block w-52 rounded-xl shadow-2xl border-2 border-gray-600 transform translate-y-12">
+
+                <div class="mb-4 relative z-10">
+                    <h1 id="movieTitle" class="text-4xl md:text-5xl font-bold text-white mb-2 drop-shadow-lg"></h1>
+                    <div class="flex items-center gap-4 text-sm text-gray-300">
+                        <span id="movieYear" class="bg-gray-800/60 backdrop-blur border border-gray-600 px-3 py-1 rounded-full"></span>
+                        <span id="movieRating" class="text-yellow-400 font-bold text-lg drop-shadow-md"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 mt-16 grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 space-y-8">
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Opis Fabuły</h2>
+                    <p id="movieDesc" class="text-gray-300 leading-relaxed"></p>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Obsada</h2>
+                    <div id="castGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                </div>
+            </div>
+
+            <div class="space-y-8">
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4 text-white">Zwiastun</h3>
+                    <div id="trailerContainer" class="aspect-video bg-gray-900 rounded-lg overflow-hidden border border-gray-600 flex items-center justify-center text-gray-500">
+                        Brak zwiastuna
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4 text-white">Kadry</h3>
+                    <div id="imagesGrid" class="grid grid-cols-2 gap-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const API_URL = "http://127.0.0.1:8000";
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadMovieDetails();
+    });
+
+    async function loadMovieDetails() {
+        const params = new URLSearchParams(window.location.search);
+        const movieId = params.get('id');
+        if(!movieId) return;
+
+        try {
+            const res = await fetch(`${API_URL}/movies/${movieId}/details`);
+            if(!res.ok) throw new Error("Błąd pobierania");
+            const data = await res.json();
+            renderMovie(data);
+        } catch(e) {
+            document.getElementById('loading').innerText = "Nie udało się załadować filmu.";
+        }
+    }
+
+    function renderMovie(data) {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+
+        document.getElementById('movieTitle').innerText = data.title;
+        document.getElementById('movieYear').innerText = data.year || "";
+        document.getElementById('movieRating').innerText = `★ ${data.rating}/5`;
+        document.getElementById('movieDesc').innerText = data.description || "Brak opisu.";
+
+        const backdropUrl = data.extras.backdrop || data.poster_url;
+        document.getElementById('backdropImage').style.backgroundImage = `url('${backdropUrl}')`;
+        if(data.poster_url) document.getElementById('posterImage').src = data.poster_url;
+
+        const castGrid = document.getElementById('castGrid');
+        if(data.extras.cast && data.extras.cast.length > 0) {
+            data.extras.cast.forEach(actor => {
+                const photo = actor.photo || "https://via.placeholder.com/100x150?text=No+Img";
+                castGrid.innerHTML += `
+                    <div class="flex items-center gap-3 bg-gray-700/50 p-2 rounded-lg border border-gray-600 hover:border-blue-500 transition">
+                        <img src="${photo}" class="w-10 h-10 rounded-full object-cover border border-gray-500">
+                        <div>
+                            <div class="text-sm font-bold text-white leading-tight">${actor.name}</div>
+                            <div class="text-xs text-gray-400">${actor.character}</div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else { castGrid.innerHTML = '<span class="text-gray-500 text-sm">Brak danych.</span>'; }
+
+        if(data.extras.trailer) {
+            document.getElementById('trailerContainer').innerHTML = `
+                <iframe width="100%" height="100%"
+                    src="https://www.youtube.com/embed/${data.extras.trailer}"
+                    title="Trailer" frameborder="0" allowfullscreen>
+                </iframe>
+            `;
+        }
+
+        const imgGrid = document.getElementById('imagesGrid');
+        if(data.extras.images && data.extras.images.length > 0) {
+             data.extras.images.slice(0, 4).forEach(imgUrl => {
+                 imgGrid.innerHTML += `<img src="${imgUrl}" class="rounded-lg border border-gray-600 opacity-80 hover:opacity-100 transition cursor-pointer">`;
+             });
+        }
+    }
+</script>
+</body>
+</html>
