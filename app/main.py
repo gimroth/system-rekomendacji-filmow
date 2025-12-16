@@ -39,6 +39,10 @@ app.dependency_overrides[get_current_admin] = mock_get_current_admin
 async def login_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request})
+
 @app.get("/home", response_class=HTMLResponse)
 async def home_page(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
