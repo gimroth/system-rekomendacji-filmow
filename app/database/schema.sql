@@ -49,11 +49,9 @@ CREATE TABLE ratings (
     UNIQUE(user_id, movie_id)
 );
 
--- USER_PREFERENCES
+-- USER_PREFERENCES (bez preferred_genres)
 CREATE TABLE user_preferences (
     user_id             INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-
-    preferred_genres    VARCHAR(500) NOT NULL,
 
     weight_story        INTEGER NOT NULL CHECK (weight_story BETWEEN 1 AND 5),
     weight_acting       INTEGER NOT NULL CHECK (weight_acting BETWEEN 1 AND 5),
@@ -61,5 +59,20 @@ CREATE TABLE user_preferences (
     weight_sound        INTEGER NOT NULL CHECK (weight_sound BETWEEN 1 AND 5),
     weight_direction    INTEGER NOT NULL CHECK (weight_direction BETWEEN 1 AND 5),
 
+    onboarding_completed BOOLEAN DEFAULT TRUE,
     created_at          TIMESTAMP DEFAULT NOW()
 );
+
+-- NOWA TABELA: USER_PREFERRED_GENRES
+CREATE TABLE user_preferred_genres (
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    genre_id    INTEGER REFERENCES genres(id) ON DELETE CASCADE,
+    created_at  TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (user_id, genre_id)
+);
+
+-- INDEKSY dla wydajności
+CREATE INDEX idx_ratings_user ON ratings(user_id);
+CREATE INDEX idx_ratings_movie ON ratings(movie_id);
+CREATE INDEX idx_movie_genres_genre ON movie_genres(genre_id);
+CREATE INDEX idx_user_preferred_genres_user ON user_preferred_genres(user_id);
