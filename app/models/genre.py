@@ -21,7 +21,7 @@ class Genre(Base):
     name = Column(String(50), unique=True, nullable=False)
 
     # Wiele-do-Wielu z Movie
-    movies = relationship("Movie", secondary="movie_genres", back_populates="genres", overlaps="movie,genre")
+    movies = relationship("Movie", secondary="movie_genres", back_populates="genres", overlaps="movie_genres")
 
     # Relacja do MovieGenre
-    movie_genres = relationship("MovieGenre", back_populates="genre", cascade="all, delete-orphan")
+    movie_genres = relationship("MovieGenre", back_populates="genre", cascade="all, delete-orphan", overlaps="genres,movies")
