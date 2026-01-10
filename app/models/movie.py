@@ -18,7 +18,7 @@ class Movie(Base):
     genres = relationship("Genre", secondary="movie_genres", back_populates="movies", overlaps="movie,genre")
 
     # Relacja do MovieGenre
-    movie_genres = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan")
+    movie_genres = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan", overlaps="genres")
 
     # Jeden-do-Wielu z Rating
     ratings = relationship("Rating", back_populates="movie", cascade="all, delete-orphan")
