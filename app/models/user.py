@@ -13,33 +13,32 @@ class User(Base):
     role = Column(String(20), default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-# Relacja Jeden-do-Wielu (User -> Ratings)
+    # Relacja Jeden-do-Wielu (User -> Ratings)
+    # Zakładam, że model Rating istnieje w innym pliku
     ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
 
+    # --- NOWA LINIA: Relacja do Komentarzy ---
+    # Musi tu być, aby back_populates="comments" w drugim pliku działało
+    comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
 
-# Definicja nowej tabeli na preferencje początkowe
+
+# Definicja tabeli preferencji (pozostaje bez zmian, jest poprawna)
 class UserPreference(Base):
     __tablename__ = "user_preferences"
 
-    # KLUCZ GŁÓWNY I OBCY: user_id
-    # Używamy user_id jako klucza głównego, zapewniając jedną preferencję na użytkownika.
     user_id = Column(
         Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),  # Powiązanie z tabelą "users"
+        ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         index=True
     )
 
-    # POLA Z FORMULARZA (zgodne ze schematem Pydantic)
     preferred_genres = Column(String(500), nullable=False)
-
-    # Wagi aspektów (skala 1-5, zgodne z polami w tabeli Ratings)
     weight_story = Column(Integer, nullable=False)
     weight_acting = Column(Integer, nullable=False)
     weight_visuals = Column(Integer, nullable=False)
     weight_sound = Column(Integer, nullable=False)
     weight_direction = Column(Integer, nullable=False)
 
-    # Relacja do użytkownika (Relacja Jeden-do-Jednego)
-    # Odwołuje się do klasy User, którą masz zdefiniowaną wyżej
+    # Tutaj używasz backref="preferences", co tworzy pole user.preferences
     user = relationship("User", backref="preferences")

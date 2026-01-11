@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Rekomendacji Filmów - Logowanie</title>
-    <!-- Ładowanie Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -20,13 +19,10 @@
     <div id="app" class="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700">
         <h1 class="text-3xl font-bold text-white mb-6 text-center" id="form-title">Logowanie</h1>
 
-        <!-- Komunikat zwrotny -->
         <div id="message-box" class="p-3 mb-4 rounded-lg text-sm text-center hidden"></div>
 
-        <!-- Formularz logowania/rejestracji -->
         <form id="auth-form" onsubmit="handleAuth(event)">
 
-            <!-- Pole Nazwa Użytkownika -->
             <div class="mb-4">
                 <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Nazwa Użytkownika</label>
                 <input type="text" id="username" name="username" required
@@ -34,7 +30,6 @@
                        placeholder="Wprowadź nazwę">
             </div>
 
-            <!-- Pole Email (tylko dla rejestracji) -->
             <div class="mb-4 hidden" id="email-group">
                 <label for="email" class="block text-sm font-medium text-gray-300 mb-1">Email</label>
                 <input type="email" id="email" name="email"
@@ -42,7 +37,6 @@
                        placeholder="np. jan@domena.pl">
             </div>
 
-            <!-- Pole Hasło -->
             <div class="mb-6">
                 <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Hasło</label>
                 <input type="password" id="password" name="password" required
@@ -50,14 +44,12 @@
                        placeholder="••••••••">
             </div>
 
-            <!-- Przycisk Akcji -->
             <button type="submit" id="submit-button"
                     class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition duration-200 shadow-md">
                 Zaloguj
             </button>
         </form>
 
-        <!-- Przełącznik formularzy -->
         <div class="mt-6 text-center">
             <p class="text-gray-400 text-sm">
                 Nie masz konta?
@@ -66,16 +58,6 @@
                 </button>
             </p>
         </div>
-    </div>
-
-    <!-- Główny Kontent (po zalogowaniu) -->
-    <div id="main-content" class="w-full max-w-4xl bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700 hidden">
-        <h2 class="text-3xl font-bold text-green-400 mb-4">Witaj w Systemie Rekomendacji!</h2>
-        <p class="text-gray-300 mb-6">Jesteś zalogowany. Tutaj znajdzie się główny interfejs aplikacji (w przyszłości).</p>
-        <p class="text-sm text-yellow-500 mb-4">Twój Token Dostępu: <span id="display-token" class="break-all font-mono text-xs text-yellow-300"></span></p>
-        <button onclick="logout()" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">
-            Wyloguj
-        </button>
     </div>
 
 <script>
@@ -90,8 +72,6 @@
     const toggleButtonEl = document.getElementById('toggle-button');
     const messageBoxEl = document.getElementById('message-box');
     const authFormEl = document.getElementById('app');
-    const mainContentEl = document.getElementById('main-content');
-    const tokenDisplayEl = document.getElementById('display-token');
 
     // Ustawia komunikat (sukces/błąd)
     function displayMessage(message, isError = false) {
@@ -165,10 +145,20 @@
 
             // Sukces
             if (isLoginMode) {
-                // Zapisz token i przejdź do głównego widoku
+                // 1. Zapisz token
                 localStorage.setItem('accessToken', data.access_token);
                 localStorage.setItem('refreshToken', data.refresh_token);
-                enterApp(data.access_token);
+                
+                // 2. Obsługa przekierowania (REDIRECT)
+                const params = new URLSearchParams(window.location.search);
+                const nextUrl = params.get('next');
+
+                if (nextUrl) {
+                    window.location.href = nextUrl; // Wróć tam skąd przyszedłeś (np. do filmu)
+                } else {
+                    window.location.href = "/home"; // Idź na stronę główną
+                }
+
             } else {
                 // Po rejestracji wróć do logowania z komunikatem sukcesu
                 displayMessage(`Użytkownik ${data.username} został pomyślnie zarejestrowany. Zaloguj się.`, false);
@@ -184,27 +174,14 @@
         }
     }
 
-    // Przejście do widoku głównego aplikacji
-    function enterApp(token) {
-        authFormEl.classList.add('hidden');
-        mainContentEl.classList.remove('hidden');
-        tokenDisplayEl.textContent = token || localStorage.getItem('accessToken') || "Brak tokenu";
-    }
-
-    // Wylogowanie
-    function logout() {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        mainContentEl.classList.add('hidden');
-        authFormEl.classList.remove('hidden');
-        displayMessage("Wylogowano pomyślnie.", false);
-    }
-
-    // Sprawdzenie, czy użytkownik jest już zalogowany przy ładowaniu strony
+    // Sprawdzenie przy wejściu, czy użytkownik jest już zalogowany
     document.addEventListener('DOMContentLoaded', () => {
         const token = localStorage.getItem('accessToken');
         if (token) {
-            enterApp(token);
+            // Jeśli jest już zalogowany, sprawdź czy ma gdzie wrócić, jak nie to Home
+            const params = new URLSearchParams(window.location.search);
+            const nextUrl = params.get('next');
+            window.location.href = nextUrl || "/home";
         }
     });
 </script>
