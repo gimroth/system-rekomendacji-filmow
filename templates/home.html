@@ -115,6 +115,17 @@
 
         } catch(e) { console.error(e); }
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+    const token = localStorage.getItem('accessToken');
+    // Zakładamy, że dekodujesz token lub przechowujesz obiekt 'user'
+    const userData = JSON.parse(localStorage.getItem('user'));
+
+    if (userData && userData.role === 'admin') {
+        // Jeśli admin próbuje wejść na stronę usera, wyrzuć go do panelu
+        window.location.href = '/admin-panel';
+    }
+});
 </script>
 </body>
 </html>

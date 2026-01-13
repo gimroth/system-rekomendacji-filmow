@@ -3,150 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Rekomendacji Filmów - Logowanie</title>
-    <!-- Ładowanie Tailwind CSS -->
+    <title>MovieRec - Logowanie</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #1f2937; /* Ciemne tło */
-            min-height: 100vh;
-        }
+        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
+        .glass-effect { background: rgba(31, 41, 55, 0.7); backdrop-filter: blur(10px); }
     </style>
 </head>
 <body class="flex items-center justify-center p-4">
 
-    <div id="app" class="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700">
-        <h1 class="text-3xl font-bold text-white mb-6 text-center" id="form-title">Logowanie</h1>
+    <div id="app" class="w-full max-w-md glass-effect p-8 rounded-2xl shadow-2xl border border-gray-700">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-white mb-2">Movie<span class="text-blue-500">Rec</span></h1>
+            <p id="form-title" class="text-gray-400 font-medium text-lg">Zaloguj się do systemu</p>
+        </div>
 
-        <!-- Komunikat zwrotny -->
-        <div id="message-box" class="p-3 mb-4 rounded-lg text-sm text-center hidden"></div>
+        <div id="message-box" class="p-3 mb-6 rounded-lg text-sm text-center hidden"></div>
 
-        <!-- Formularz logowania/rejestracji -->
         <form id="auth-form" onsubmit="handleAuth(event)">
-
-            <!-- Pole Nazwa Użytkownika -->
             <div class="mb-4">
-                <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Nazwa Użytkownika</label>
+                <label for="username" class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Nazwa Użytkownika</label>
                 <input type="text" id="username" name="username" required
-                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500"
-                       placeholder="Wprowadź nazwę">
+                       class="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition outline-none"
+                       placeholder="Twój login">
             </div>
 
-            <!-- Pole Email (tylko dla rejestracji) -->
             <div class="mb-4 hidden" id="email-group">
-                <label for="email" class="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                <label for="email" class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Adres Email</label>
                 <input type="email" id="email" name="email"
-                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500"
-                       placeholder="np. jan@domena.pl">
+                       class="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition outline-none"
+                       placeholder="np. kontakt@movierec.pl">
             </div>
 
-            <!-- Pole Hasło -->
-            <div class="mb-6">
-                <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Hasło</label>
+            <div class="mb-8">
+                <label for="password" class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Hasło</label>
                 <input type="password" id="password" name="password" required
-                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500"
+                       class="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition outline-none"
                        placeholder="••••••••">
             </div>
 
-            <!-- Przycisk Akcji -->
             <button type="submit" id="submit-button"
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition duration-200 shadow-md">
-                Zaloguj
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition duration-300 shadow-lg shadow-blue-900/40 transform active:scale-[0.98]">
+                Zaloguj się
             </button>
         </form>
 
-        <!-- Przełącznik formularzy -->
-        <div class="mt-6 text-center">
+        <div class="mt-8 text-center border-t border-gray-700 pt-6">
             <p class="text-gray-400 text-sm">
-                Nie masz konta?
-                <button id="toggle-button" onclick="toggleMode()" class="text-blue-400 hover:text-blue-300 font-medium">
-                    Zarejestruj się
+                <span id="toggle-text">Nie masz jeszcze konta?</span>
+                <button id="toggle-button" onclick="toggleMode()" class="text-blue-500 hover:text-blue-400 font-bold ml-1 transition">
+                    Utwórz konto
                 </button>
             </p>
         </div>
     </div>
 
-    <!-- Główny Kontent (po zalogowaniu) -->
-    <div id="main-content" class="w-full max-w-4xl bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700 hidden">
-        <h2 class="text-3xl font-bold text-green-400 mb-4">Witaj w Systemie Rekomendacji!</h2>
-        <p class="text-gray-300 mb-6">Jesteś zalogowany. Tutaj znajdzie się główny interfejs aplikacji (w przyszłości).</p>
-        <p class="text-sm text-yellow-500 mb-4">Twój Token Dostępu: <span id="display-token" class="break-all font-mono text-xs text-yellow-300"></span></p>
-        <button onclick="logout()" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">
-            Wyloguj
-        </button>
-    </div>
-
 <script>
-    // Zmienne stanu
     let isLoginMode = true;
     const API_BASE_URL = "http://127.0.0.1:8000";
 
     const titleEl = document.getElementById('form-title');
+    const toggleTextEl = document.getElementById('toggle-text');
     const emailGroupEl = document.getElementById('email-group');
     const emailInputEl = document.getElementById('email');
     const submitButtonEl = document.getElementById('submit-button');
     const toggleButtonEl = document.getElementById('toggle-button');
     const messageBoxEl = document.getElementById('message-box');
-    const authFormEl = document.getElementById('app');
-    const mainContentEl = document.getElementById('main-content');
-    const tokenDisplayEl = document.getElementById('display-token');
 
-    // Ustawia komunikat (sukces/błąd)
     function displayMessage(message, isError = false) {
         messageBoxEl.textContent = message;
-        messageBoxEl.classList.remove('hidden', 'bg-red-900', 'text-red-300', 'bg-green-900', 'text-green-300');
-
-        if (isError) {
-            messageBoxEl.classList.add('bg-red-900', 'text-red-300');
-        } else {
-            messageBoxEl.classList.add('bg-green-900', 'text-green-300');
-        }
+        messageBoxEl.classList.remove('hidden', 'bg-red-900/50', 'text-red-200', 'bg-green-900/50', 'text-green-200');
+        messageBoxEl.classList.add('block', isError ? 'bg-red-900/50' : 'bg-green-900/50', isError ? 'text-red-200' : 'text-green-200');
     }
 
-    // Przełączanie między logowaniem a rejestracją
     function toggleMode() {
         isLoginMode = !isLoginMode;
-        messageBoxEl.classList.add('hidden'); // Ukrywa komunikat
-
-        if (isLoginMode) {
-            titleEl.textContent = "Logowanie";
-            submitButtonEl.textContent = "Zaloguj";
-            toggleButtonEl.textContent = "Zarejestruj się";
-            emailGroupEl.classList.add('hidden');
-            emailInputEl.removeAttribute('required');
-        } else {
-            titleEl.textContent = "Rejestracja";
-            submitButtonEl.textContent = "Zarejestruj";
-            toggleButtonEl.textContent = "Zaloguj się";
-            emailGroupEl.classList.remove('hidden');
-            emailInputEl.setAttribute('required', 'required');
-        }
+        messageBoxEl.classList.add('hidden');
+        titleEl.textContent = isLoginMode ? "Zaloguj się do systemu" : "Stwórz nowe konto";
+        submitButtonEl.textContent = isLoginMode ? "Zaloguj się" : "Zarejestruj się";
+        toggleTextEl.textContent = isLoginMode ? "Nie masz jeszcze konta?" : "Masz już konto?";
+        toggleButtonEl.textContent = isLoginMode ? "Utwórz konto" : "Zaloguj się";
+        emailGroupEl.classList.toggle('hidden', isLoginMode);
+        if (isLoginMode) emailInputEl.removeAttribute('required');
+        else emailInputEl.setAttribute('required', 'required');
     }
 
-    // Obsługa logowania/rejestracji
     async function handleAuth(event) {
         event.preventDefault();
-
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
-        let url;
-        let body = { username, password };
 
-        if (!isLoginMode) {
-            // Rejestracja
-            url = `${API_BASE_URL}/auth/register`;
-            const email = emailInputEl.value;
-            body = { username, email, password };
-        } else {
-            // Logowanie
-            url = `${API_BASE_URL}/auth/login`;
-        }
+        let url = isLoginMode ? `${API_BASE_URL}/auth/login` : `${API_BASE_URL}/auth/register`;
+        let body = isLoginMode ? { username, password } : { username, email: emailInputEl.value, password };
 
         try {
             submitButtonEl.disabled = true;
-            submitButtonEl.textContent = isLoginMode ? "Logowanie..." : "Rejestracja...";
+            submitButtonEl.innerHTML = '<span class="animate-pulse">Przetwarzanie...</span>';
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -157,57 +110,44 @@
             const data = await response.json();
 
             if (!response.ok) {
-                // Obsługa błędu zwróconego przez API (np. 401, 400)
-                const errorMsg = data.detail || "Wystąpił nieznany błąd podczas autoryzacji.";
-                displayMessage(`Błąd: ${errorMsg}`, true);
+                displayMessage(data.detail || "Błąd autoryzacji", true);
                 return;
             }
 
-            // Sukces
             if (isLoginMode) {
-                // Zapisz token i przejdź do głównego widoku
+                // KLUCZOWE: Zapisujemy tokeny ORAZ obiekt użytkownika z rolą
                 localStorage.setItem('accessToken', data.access_token);
                 localStorage.setItem('refreshToken', data.refresh_token);
-                enterApp(data.access_token);
-            } else {
-                // Po rejestracji wróć do logowania z komunikatem sukcesu
-                displayMessage(`Użytkownik ${data.username} został pomyślnie zarejestrowany. Zaloguj się.`, false);
-                toggleMode(); // Przełącz na Logowanie
-            }
+                localStorage.setItem('user', JSON.stringify(data.user));
 
+                // DYNAMICZNE PRZEKIEROWANIE
+                if (data.user.role === 'admin') {
+                    window.location.href = '/admin-panel';
+                } else {
+                    window.location.href = '/home';
+                }
+            } else {
+                displayMessage("Konto utworzone! Możesz się teraz zalogować.", false);
+                toggleMode();
+            }
         } catch (error) {
-            console.error('Błąd sieci lub serwera:', error);
             displayMessage("Błąd połączenia z serwerem API.", true);
         } finally {
             submitButtonEl.disabled = false;
-            submitButtonEl.textContent = isLoginMode ? "Zaloguj" : "Zarejestruj";
+            submitButtonEl.textContent = isLoginMode ? "Zaloguj się" : "Zarejestruj się";
         }
     }
 
-    // Przejście do widoku głównego aplikacji
-    function enterApp(token) {
-        authFormEl.classList.add('hidden');
-        mainContentEl.classList.remove('hidden');
-        tokenDisplayEl.textContent = token || localStorage.getItem('accessToken') || "Brak tokenu";
-    }
-
-    // Wylogowanie
-    function logout() {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        mainContentEl.classList.add('hidden');
-        authFormEl.classList.remove('hidden');
-        displayMessage("Wylogowano pomyślnie.", false);
-    }
-
-    // Sprawdzenie, czy użytkownik jest już zalogowany przy ładowaniu strony
+    // Strażnik wejścia: Jeśli ktoś wejdzie na /login będąc zalogowanym, przekieruj go
     document.addEventListener('DOMContentLoaded', () => {
         const token = localStorage.getItem('accessToken');
-        if (token) {
-            enterApp(token);
+        const userData = localStorage.getItem('user');
+
+        if (token && userData) {
+            const user = JSON.parse(userData);
+            window.location.href = (user.role === 'admin') ? '/admin-panel' : '/home';
         }
     });
 </script>
-
 </body>
 </html>
