@@ -8,6 +8,7 @@ from app.models.user import User
 from app.dependencies import get_current_admin
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from app.routers import preferences, recommendations
 from app.dependencies import get_current_admin
 from fastapi import Depends
 
@@ -30,6 +31,7 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
+app.include_router(recommendations.router)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -56,7 +58,9 @@ async def admin_page(request: Request):
 @app.get("/onboarding", response_class=HTMLResponse)
 async def preferences_page(request: Request):
     return templates.TemplateResponse("preferences.html", {"request": request})
-
+@app.get("/my-recommendations", response_class=HTMLResponse)
+async def my_recommendations_page(request: Request):
+    return templates.TemplateResponse("recommendations.html", {"request": request})
 @app.get("/")
 def root():
     return {"message": "API działa!"}

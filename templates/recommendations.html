@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dla Ciebie - Personalizowane Rekomendacje</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
+        .glass-card {
+            background: rgba(31, 41, 55, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+        .explanation-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-left: 3px solid #3b82f6;
+        }
+    </style>
+</head>
+<body class="text-gray-100 p-4 md:p-8">
+
+    {% include "navbar.html" %}
+
+    <div class="max-w-7xl mx-auto mb-8 mt-4">
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700 relative overflow-hidden">
+            <div class="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl"></div>
+
+            <h1 class="text-3xl font-bold text-white mb-2 relative z-10">🎬 Dla Ciebie</h1>
+            <p id="modelMessage" class="text-blue-400 font-medium relative z-10 flex items-center gap-2">
+                <span class="inline-block w-2 h-2 bg-blue-500 rounded-full animate-ping"></span>
+                Inicjalizacja inteligentnego systemu ANFIS...
+            </p>
+        </div>
+    </div>
+
+    <div id="recommendationsGrid" class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div id="loading" class="col-span-full text-center py-20">
+            <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-gray-400 font-medium">Model ANFIS analizuje Twoje preferencje...</p>
+        </div>
+    </div>
+
+<script>
+    const API_URL = "http://127.0.0.1:8000";
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initRecommendations();
+    });
+
+    async function initRecommendations() {
+        // 1. Pobierz user_id z localStorage lub fallback
+        const user = JSON.parse(localStorage.getItem('user') || '{"id": 1}');
+
+        console.log('🔍 User ID:', user.id);
+
+        await loadRecommendations(user.id);
+    }
+
+    async function loadRecommendations(userId) {
+        const grid = document.getElementById('recommendationsGrid');
+        const messageEl = document.getElementById('modelMessage');
+
+        try {
+            console.log('📡 Fetching recommendations for user:', userId);
+
+            const res = await fetch(`${API_URL}/recommendations/?user_id=${userId}&limit=12&exclude_rated=true`);
+
+            console.log('📥 Response status:', res.status);
+
+            if(!res.ok) {
+                const errorText = await res.text();
+                console.error('❌ Error response:', errorText);
+                throw new Error(`Błąd ${res.status}: ${errorText}`);
+            }
+
+            const data = await res.json();
+            console.log('✅ Data received:', data);
+
+            // Aktualizacja nagłówka informacjami z modelu
+            messageEl.innerHTML = `
+                <span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                ${data.message}
+            `;
+
+            grid.innerHTML = "";
+
+            if(data.recommendations.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full text-center py-12 bg-gray-800/50 rounded-xl border border-dashed border-gray-600">
+                        <p class="text-gray-500 mb-2">Brak nowych filmów do polecenia.</p>
+                        <p class="text-sm text-gray-600 italic">Spróbuj ocenić więcej filmów w zakładce "Przeglądaj", aby nakarmić model ANFIS danymi.</p>
+                    </div>`;
+                return;
+            }
+
+            data.recommendations.forEach((m, index) => {
+                console.log(`🎬 Rendering movie ${index + 1}:`, m.title);
+
+                // Kolor pewności modelu
+                const confClass = m.confidence === 'bardzo wysoka' ? 'text-green-400' :
+                                  m.confidence === 'wysoka' ? 'text-blue-400' :
+                                  m.confidence === 'średnia' ? 'text-yellow-400' :
+                                  'text-orange-400';
+
+                // POPRAWKA: Użyj poster_url z response lub fallback
+                const posterUrl = m.poster_url || `https://via.placeholder.com/400x225?text=${encodeURIComponent(m.title)}`;
+
+                const card = document.createElement('div');
+                card.className = 'glass-card rounded-xl overflow-hidden flex flex-col group hover:border-blue-500/50 transition duration-300';
+                card.innerHTML = `
+                    <div class="relative aspect-[16/9] overflow-hidden cursor-pointer" onclick="window.location.href='/movie?id=${m.movie_id}'">
+                        <img src="${posterUrl}"
+                             onerror="this.src='https://via.placeholder.com/400x225?text=${encodeURIComponent(m.title)}'"
+                             class="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                             alt="${m.title}">
+                        <div class="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent"></div>
+                        <div class="absolute bottom-2 left-3">
+                            <span class="text-yellow-400 font-bold drop-shadow-md text-lg">★ ${m.predicted_rating}</span>
+                        </div>
+                    </div>
+
+                    <div class="p-5 flex-grow flex flex-col">
+                        <h3 class="font-bold text-lg text-white mb-2 line-clamp-1 cursor-pointer hover:text-blue-400 transition"
+                            onclick="window.location.href='/movie?id=${m.movie_id}'">${m.title}</h3>
+
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            ${m.genres.slice(0, 3).map(g => `
+                                <span class="text-[10px] px-2 py-0.5 bg-gray-700 text-gray-300 rounded uppercase tracking-wider">${g}</span>
+                            `).join('')}
+                        </div>
+
+                        <div class="explanation-box p-3 rounded-r-lg mb-4 flex-grow">
+                            <div class="flex items-start gap-2">
+                                <svg class="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                                </svg>
+                                <p class="text-xs text-gray-300 leading-relaxed italic">
+                                    ${m.explanation}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto flex justify-between items-end pt-4 border-t border-gray-700/50">
+                            <div>
+                                <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Pewność</p>
+                                <p class="text-xs font-semibold ${confClass}">${m.confidence}</p>
+                            </div>
+                            <button onclick="window.location.href='/movie?id=${m.movie_id}'"
+                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition shadow-lg">
+                                SZCZEGÓŁY
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            });
+
+            console.log('✅ Rendered', data.recommendations.length, 'movies');
+
+        } catch(e) {
+            console.error('❌ Error:', e);
+            grid.innerHTML = `
+                <div class="col-span-full text-center py-10 text-red-400 bg-red-900/10 rounded-xl border border-red-900/50">
+                    <p class="font-bold mb-2">Wystąpił błąd podczas generowania rekomendacji</p>
+                    <p class="text-sm text-gray-400">${e.message}</p>
+                    <p class="text-xs text-gray-500 mt-2">Sprawdź console (F12) aby zobaczyć szczegóły</p>
+                </div>`;
+        }
+    }
+</script>
+</body>
+</html>
