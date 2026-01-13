@@ -3,19 +3,21 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
-from app.utils.hashing import verify_password
+from app.utils.hashing import verify_password, hash_password
 from app.utils.jwt_handler import create_access_token
 import traceback
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# --- MODELE LOKALNE (Żeby na 100% działało) ---
+# --- MODELE LOKALNE ---
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user_role: str # Dodajemy role do odpowiedzi
+    user_id: int
 
 class UserLogin(BaseModel):
-    username: str  # <--- TU BYŁ PROBLEM (Frontend wysyła username, nie email)
+    username: str
     password: str
 
 class UserCreate(BaseModel):
@@ -30,12 +32,14 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- REJESTRACJA (Uproszczona) ---
-from app.utils.hashing import hash_password # Import haszowania
-
+# --- REJESTRACJA ---
 @router.post("/register", response_model=UserResponse)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
     try:
+        # Sprawdzenie czy user istnieje
+        if db.query(User).filter((User.username == user_data.username) | (User.email == user_data.email)).first():
+             raise HTTPException(status_code=400, detail="Użytkownik o takim loginie lub emailu już istnieje")
+
         new_user = User(
             username=user_data.username,
             email=user_data.email,
@@ -45,46 +49,43 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(new_user)
         return new_user
-    except Exception:
-        raise HTTPException(status_code=400, detail="Użytkownik już istnieje lub błąd danych")
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=400, detail="Błąd rejestracji")
 
-# --- LOGOWANIE (NAPRAWIONE) ---
+# --- LOGOWANIE ---
 @router.post("/login", response_model=Token)
 def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
-    print(f"\n--- LOGOWANIE START: {user_credentials.username} ---") # Teraz używamy username
+    print(f"\n--- LOGOWANIE: {user_credentials.username} ---")
     
     try:
-        # 1. Szukamy po nazwie użytkownika (username), nie po emailu
         user = db.query(User).filter(User.username == user_credentials.username).first()
         
         if not user:
-            print("!!! BŁĄD: Nie znaleziono użytkownika.")
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Credentials")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
-        # 2. Wyciągamy hasło z bazy (bezpiecznie)
         db_pass = getattr(user, 'password_hash', None) or getattr(user, 'password', None)
         
-        if not db_pass:
-             print("!!! BŁĄD KRYTYCZNY: Brak pola hasła w bazie")
-             raise HTTPException(status_code=500, detail="Server Error")
-
-        # 3. Weryfikacja hasła
         if not verify_password(user_credentials.password, db_pass):
-            print("!!! BŁĄD: Złe hasło.")
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Credentials")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
-        # 4. Tworzenie tokena
         access_token = create_access_token(data={
             "user_id": user.id,
-            "sub": user.username 
+            "sub": user.username,
+            "role": user.role 
         })
         
-        print("DEBUG: Sukces! Token wysłany.")
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "user_role": user.role,
+            "user_id": user.id
+        }
 
     except HTTPException as he:
         raise he
     except Exception as e:
-        print(f"!!! CRASH: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal Server Error")

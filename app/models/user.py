@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -13,32 +13,27 @@ class User(Base):
     role = Column(String(20), default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relacja Jeden-do-Wielu (User -> Ratings)
-    # Zakładam, że model Rating istnieje w innym pliku
+    # Relacje
     ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
-
-    # --- NOWA LINIA: Relacja do Komentarzy ---
-    # Musi tu być, aby back_populates="comments" w drugim pliku działało
+    # To jest kluczowe dla komentarzy:
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
+    # Relacja do preferencji
+    preferences = relationship("UserPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
-# Definicja tabeli preferencji (pozostaje bez zmian, jest poprawna)
 class UserPreference(Base):
     __tablename__ = "user_preferences"
 
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
-        index=True
-    )
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
-    preferred_genres = Column(String(500), nullable=False)
-    weight_story = Column(Integer, nullable=False)
-    weight_acting = Column(Integer, nullable=False)
-    weight_visuals = Column(Integer, nullable=False)
-    weight_sound = Column(Integer, nullable=False)
-    weight_direction = Column(Integer, nullable=False)
+    # Twoje bezpieczne constrainty (1-5)
+    weight_story = Column(Integer, CheckConstraint('weight_story BETWEEN 1 AND 5'), nullable=False)
+    weight_acting = Column(Integer, CheckConstraint('weight_acting BETWEEN 1 AND 5'), nullable=False)
+    weight_visuals = Column(Integer, CheckConstraint('weight_visuals BETWEEN 1 AND 5'), nullable=False)
+    weight_sound = Column(Integer, CheckConstraint('weight_sound BETWEEN 1 AND 5'), nullable=False)
+    weight_direction = Column(Integer, CheckConstraint('weight_direction BETWEEN 1 AND 5'), nullable=False)
 
-    # Tutaj używasz backref="preferences", co tworzy pole user.preferences
-    user = relationship("User", backref="preferences")
+    onboarding_completed = Column(Boolean, default=True)
+    
+    # Back_populates zamyka relację
+    user = relationship("User", back_populates="preferences")
