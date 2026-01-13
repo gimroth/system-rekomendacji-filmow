@@ -1,22 +1,25 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
+# Import bazy danych
 from app.database import Base, engine
-# Importujemy wszystkie modele
-from app.models import user, comment
-from app.routers import auth, admin, preferences, movies, comments
-from app.dependencies import get_current_admin
 
-# Tworzenie tabel
+# Import modeli (żeby SQLAlchemy wiedziało co stworzyć w bazie)
+# Tutaj łączymy Twoje modele i ewentualne modele dziewczyn
+from app.models import user, comment, preference, movie
+
+# Import Twoich routerów (LOGIKA)
+from app.routers import auth, admin, preferences, movies, comments
+
+# Tworzenie tabel w bazie
 Base.metadata.create_all(bind=engine)
 
-templates = Jinja2Templates(directory="templates")
 app = FastAPI(title="System Rekomendacji Filmów")
 
-# Konfiguracja CORS
+# Konfiguracja CORS (bezpieczeństwo)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,20 +28,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pliki statyczne
+# Obsługa plików statycznych (CSS, obrazki)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# --- REJESTRACJA ROUTERÓW ---
+# Konfiguracja szablonów HTML
+templates = Jinja2Templates(directory="templates")
+
+# --- PODPINANIE ROUTERÓW (API) ---
+# To sprawia, że Twoje logowanie i komentarze działają
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
-app.include_router(comments.router) # Dodany router koleżanek
+app.include_router(comments.router)
 
-# --- ENDPOINTY HTML ---
+
+# --- ENDPOINTY HTML (WIDOKI) ---
+# To są strony, które dodały koleżanki
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
+    # Strona startowa
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/login", response_class=HTMLResponse)
@@ -64,7 +74,3 @@ async def movie_detail_page(request: Request):
 @app.get("/admin-panel", response_class=HTMLResponse)
 async def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
-
-@app.get("/onboarding", response_class=HTMLResponse)
-async def preferences_page(request: Request):
-    return templates.TemplateResponse("preferences.html", {"request": request})
