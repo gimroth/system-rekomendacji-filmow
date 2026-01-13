@@ -8,6 +8,8 @@ from app.models.user import User
 from app.dependencies import get_current_admin
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from app.dependencies import get_current_admin
+from fastapi import Depends
 
 Base.metadata.create_all(bind=engine)
 
@@ -28,12 +30,6 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
-
-def mock_get_current_admin():
-    # Udajemy, że zawsze jest zalogowany admin
-    return User(id=1, username="DevAdmin", email="admin@dev.com", role="admin")
-
-app.dependency_overrides[get_current_admin] = mock_get_current_admin
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):

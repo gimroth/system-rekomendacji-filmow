@@ -35,11 +35,19 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Nieprawidłowe dane logowania")
 
-    access = create_access_token({"user_id": user.id})
-    refresh = create_refresh_token({"user_id": user.id})
+    # DODAJEMY rolę do payloadu tokena, aby get_current_user działało szybciej
+    token_data = {"user_id": user.id, "role": user.role}
+    access = create_access_token(token_data)
+    refresh = create_refresh_token(token_data)
 
+    # Zwracamy rolę i dane użytkownika, aby zapisać je w localStorage
     return {
         "access_token": access,
         "refresh_token": refresh,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role
+        }
     }
