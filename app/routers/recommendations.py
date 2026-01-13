@@ -80,16 +80,6 @@ async def get_recommendations(
 ):
     """
     Generuje rekomendacje ANFIS z dynamicznymi top 3 + inteligentne gatunki.
-
-    LOGIKA CECH:
-    - Priorytet 1: Formularz (jeśli wypełniony)
-    - Priorytet 2: Średnie z ocen (jeśli ≥5)
-    - Fallback: Domyślne
-
-    LOGIKA GATUNKÓW:
-    - Ma formularz + brak ocen → z formularza
-    - Brak formularza + ma oceny → z ocen (2-10 najczęstszych)
-    - Ma formularz + ma oceny → merge inteligentny
     """
 
     # Sprawdź user
@@ -116,15 +106,10 @@ async def get_recommendations(
     # Pobierz preferowane gatunki
     preferred_genres = processor.get_smart_user_genres(user_id)
 
-    print(f"🔍 User {user_id}:")
-    print(f"   Source: {source}")
-    print(f"   Top 3: {top_3_keys}")
-    print(f"   Genres: {preferred_genres}")
-
     # =========================================================================
     # POBIERZ KANDYDATÓW
     # =========================================================================
-    movies_query = db.query(Movie).filter(Movie.id.isnot(None))
+    movies_query = db.query(Movie)
 
     # Wykluczenie ocenionych
     if exclude_rated:
@@ -134,19 +119,13 @@ async def get_recommendations(
         if rated_ids:
             movies_query = movies_query.filter(not_(Movie.id.in_(rated_ids)))
 
-    # FILTROWANIE PO GATUNKACH (jeśli są preferowane)
+    # FILTROWANIE PO GATUNKACH
     if use_genre_filter and preferred_genres:
-        print(f"   🎬 Filtrowanie po gatunkach: {preferred_genres}")
-
-        # Filtruj filmy które mają PRZYNAJMNIEJ JEDEN z preferowanych gatunków
-        # Używamy join z MovieGenre i Genre
         movies_query = movies_query.join(MovieGenre).join(Genre).filter(
             Genre.name.in_(preferred_genres)
         ).distinct()
 
-    candidates = movies_query.all()
-
-    print(f"   📊 Kandydatów: {len(candidates)}")
+    candidates = movies_query.limit(200).all() # Ograniczenie dla wydajności scoringu
 
     if not candidates:
         return RecommendationsResponse(
@@ -156,11 +135,11 @@ async def get_recommendations(
             source=source,
             preferred_genres=preferred_genres,
             recommendations=[],
-            message="Brak filmów spełniających kryteria. Spróbuj wyłączyć filtr gatunków."
+            message="Brak filmów spełniających kryteria."
         )
 
     # =========================================================================
-    # GENERUJ PREDYKCJE
+    # GENERUJ PREDYKCJE (SCORING)
     # =========================================================================
     predictions = []
 
@@ -169,8 +148,7 @@ async def get_recommendations(
             rating = predict_anfis_dynamic(user_id, movie.id, processor, top_3_keys)
             if rating is not None:
                 predictions.append({'movie': movie, 'rating': rating})
-        except Exception as e:
-            print(f"⚠️  Prediction failed for movie {movie.id}: {e}")
+        except Exception:
             continue
 
     # Sortuj i weź top N
@@ -183,8 +161,10 @@ async def get_recommendations(
     recommendations = []
     for pred in top_predictions:
         movie = pred['movie']
-        rating_norm = pred['rating']
-        rating_denorm = (rating_norm * 4) + 1  # 0-1 → 1-5
+        rating_denorm = (pred['rating'] * 4) + 1  # Skala 0-1 -> 1-5
+
+        # NAPRAWA BŁĘDU: Pobieranie nazw gatunków bezpośrednio z relacji
+        movie_genres = [g.name for g in movie.genres] if hasattr(movie, 'genres') else []
 
         recommendations.append(MovieRecommendation(
             movie_id=movie.id,
@@ -192,19 +172,17 @@ async def get_recommendations(
             predicted_rating=round(rating_denorm, 2),
             confidence=get_confidence(rating_denorm),
             explanation=generate_explanation_dynamic(user_id, movie.id, processor, top_3_keys),
-            genres=[mg.genre.name for mg in movie.genres],
+            genres=movie_genres,
             poster_url=getattr(movie, 'poster_url', None)
         ))
 
-    # =========================================================================
     # MESSAGE
-    # =========================================================================
     if source == 'form':
-        message = f"Rekomendacje ANFIS z formularza ({len(preferred_genres)} gatunków). Top 3: {', '.join(top_3_keys)}."
+        message = f"Rekomendacje z formularza. Wybrane cechy: {', '.join(top_3_keys)}."
     elif source == 'ratings':
-        message = f"Rekomendacje ANFIS z {ratings_count} ocen ({len(preferred_genres)} gatunków). Top 3: {', '.join(top_3_keys)}."
+        message = f"Rekomendacje z Twoich {ratings_count} ocen. Top cechy: {', '.join(top_3_keys)}."
     else:
-        message = f"Rekomendacje ANFIS (domyślne). Top 3: {', '.join(top_3_keys)}."
+        message = "Rekomendacje domyślne."
 
     return RecommendationsResponse(
         user_id=user_id,
@@ -217,175 +195,42 @@ async def get_recommendations(
     )
 
 # =============================================================================
-# Helper: Predykcja z dynamicznymi top 3
+# Helper: Predykcja
 # =============================================================================
 
-def predict_anfis_dynamic(
-    user_id: int,
-    movie_id: int,
-    processor: DataProcessor,
-    top_3_keys: List[str]
-) -> Optional[float]:
-    """
-    Predykcja ANFIS z DYNAMICZNYMI top 3.
+def predict_anfis_dynamic(user_id, movie_id, processor, top_3_keys):
+    user_input, _ = processor.get_user_input_for_anfis(user_id)
+    movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
 
-    Model przyjmuje: u_aspect1, m_aspect1, u_aspect2, m_aspect2, u_aspect3, m_aspect3
-    Endpoint mapuje user top 3 na aspect1/2/3.
-    """
-    try:
-        # Pobierz features użytkownika
-        user_input, _ = processor.get_user_input_for_anfis(user_id)
+    if not user_input or not movie_input: return None
 
-        if not user_input or not top_3_keys:
-            return None
+    # Obliczamy dopasowanie: 1.0 - abs(film - user)
+    # Jeśli film ma 0.8 a user chce 0.8 -> wynik 1.0 (idealnie)
+    # Jeśli film ma 0.2 a user chce 0.8 -> wynik 0.4 (słabo)
+    anfis_input = {}
+    for i, key in enumerate(top_3_keys):
+        u_val = user_input[f'u_{key}']
+        m_val = movie_input[f'm_{key}']
+        match_score = 1.0 - abs(u_val - m_val)
+        anfis_input[f'match{i+1}'] = match_score
 
-        # Pobierz features filmu
-        movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
-
-        if not movie_input:
-            return None
-
-        # ✅ KLUCZOWA ZMIANA: Mapuj na GENERYCZNE klucze!
-        # DataProcessor zwraca: {'u_story': 0.75, 'm_story': 0.65, ...}
-        # Model oczekuje: {'u_aspect1': 0.75, 'm_aspect1': 0.65, ...}
-
-        anfis_input = {
-            'u_aspect1': user_input[f'u_{top_3_keys[0]}'],
-            'm_aspect1': movie_input[f'm_{top_3_keys[0]}'],
-            'u_aspect2': user_input[f'u_{top_3_keys[1]}'],
-            'm_aspect2': movie_input[f'm_{top_3_keys[1]}'],
-            'u_aspect3': user_input[f'u_{top_3_keys[2]}'],
-            'm_aspect3': movie_input[f'm_{top_3_keys[2]}']
-        }
-
-        # Predykcja
-        prediction = anfis_model.predict(anfis_input)
-
-        return float(np.clip(prediction, 0, 1))
-
-    except Exception as e:
-        print(f"❌ ANFIS error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
+    return anfis_model.predict(anfis_input)
 # =============================================================================
-# Helper: Wyjaśnienie
+# Helpery pomocnicze
 # =============================================================================
 
-def generate_explanation_dynamic(
-    user_id: int,
-    movie_id: int,
-    processor: DataProcessor,
-    top_3_keys: List[str]
-) -> str:
-    """Generuje wyjaśnienie z dynamicznymi top 3."""
-    try:
-        user_input, _ = processor.get_user_input_for_anfis(user_id)
-
-        if not user_input or not top_3_keys:
-            return "Polecamy na podstawie Twoich preferencji."
-
-        movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
-
-        if not movie_input:
-            return "Polecamy na podstawie Twoich preferencji."
-
-        # Top aspekt (aspect1 = top_3_keys[0])
-        top_aspect = top_3_keys[0]
-        user_val = user_input[f'u_{top_aspect}']
-        movie_val = movie_input[f'm_{top_aspect}']
-
-        # Denormalizuj
-        user_rating = (user_val * 4) + 1
-        movie_rating = (movie_val * 4) + 1
-
-        # Polskie nazwy
-        names_pl = {
-            'story': 'fabułę', 'acting': 'aktorstwo',
-            'visuals': 'efekty wizualne', 'sound': 'dźwięk',
-            'direction': 'reżyserię'
-        }
-        aspect_pl = names_pl.get(top_aspect, top_aspect)
-
-        # Generuj tekst
-        if user_rating >= 4.0 and movie_rating >= 4.0:
-            return f"Film ma świetną {aspect_pl} ({movie_rating:.1f}⭐), którą cenisz ({user_rating:.1f}⭐)."
-        elif user_rating >= 3.5 and movie_rating >= 3.5:
-            return f"Film ma dobrą {aspect_pl} ({movie_rating:.1f}⭐), co pasuje do preferencji."
-        else:
-            return f"Film ma {aspect_pl} na poziomie {movie_rating:.1f}⭐."
-
-    except Exception as e:
-        return "Polecamy na podstawie Twoich preferencji."
+def generate_explanation_dynamic(user_id, movie_id, processor, top_3_keys):
+    """Wyjaśnienie 'dlaczego polecamy'."""
+    names_pl = {'story': 'fabułę', 'acting': 'aktorstwo', 'visuals': 'wizualia', 'sound': 'dźwięk', 'direction': 'reżyserię'}
+    aspect = top_3_keys[0]
+    return f"Film posiada wysoko ocenianą {names_pl.get(aspect, aspect)}, co pasuje do Twojego profilu."
 
 def get_confidence(rating: float) -> str:
-    """Zwraca poziom pewności."""
     if rating >= 4.5: return "bardzo wysoka"
-    elif rating >= 4.0: return "wysoka"
-    elif rating >= 3.5: return "średnia"
-    elif rating >= 3.0: return "niska"
-    else: return "bardzo niska"
-
-# =============================================================================
-# Debug endpoint
-# =============================================================================
-
-@router.get("/test/{user_id}/{movie_id}")
-async def test_prediction(
-    user_id: int,
-    movie_id: int,
-    db: Session = Depends(get_db)
-):
-    """Test predykcji z pełnymi informacjami o użytkowniku."""
-
-    user = db.query(User).filter(User.id == user_id).first()
-    movie = db.query(Movie).filter(Movie.id == movie_id).first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if not movie:
-        raise HTTPException(status_code=404, detail="Movie not found")
-    if not anfis_model:
-        raise HTTPException(status_code=503, detail="ANFIS not loaded")
-
-    processor = DataProcessor(db)
-    ratings_count = db.query(func.count(Rating.id)).filter(
-        Rating.user_id == user_id
-    ).scalar()
-
-    # Pobierz inteligentne cechy + gatunki
-    user_features, top_3_keys, source = processor.get_smart_user_features(user_id)
-    preferred_genres = processor.get_smart_user_genres(user_id)
-
-    # Predykcja
-    prediction = predict_anfis_dynamic(user_id, movie_id, processor, top_3_keys)
-
-    if prediction is None:
-        raise HTTPException(status_code=500, detail="Prediction failed")
-
-    prediction_denorm = (prediction * 4) + 1
-
-    return {
-        "user_id": user_id,
-        "movie_id": movie_id,
-        "movie_title": movie.title,
-        "model_used": "anfis_dynamic",
-        "user_ratings_count": ratings_count,
-        "source": source,  # 'form' | 'ratings' | 'default'
-        "user_top_3_aspects": top_3_keys,  # Dynamiczne top 3 dla tego usera
-        "user_preferred_genres": preferred_genres,  # Gatunki usera
-        "predicted_rating_normalized": round(prediction, 4),
-        "predicted_rating": round(prediction_denorm, 2),
-        "confidence": get_confidence(prediction_denorm),
-        "explanation": generate_explanation_dynamic(user_id, movie_id, processor, top_3_keys)
-    }
+    elif rating >= 3.5: return "wysoka"
+    return "średnia"
 
 @router.post("/reload-models")
 async def reload_models():
-    """Przeładuj model ANFIS."""
     load_models()
-    return {
-        "message": "Model reloaded",
-        "status": {"anfis": "loaded" if anfis_model else "not loaded"}
-    }
+    return {"message": "Model reloaded", "status": "ok" if anfis_model else "error"}

@@ -1,0 +1,45 @@
+
+================================================================================
+RAPORT PORÓWNAWCZY: ANFIS vs MLP
+================================================================================
+Data: 2026-01-13 21:19:27
+
+1. METRYKI ILOŚCIOWE
+====================
+
+Metryka                     ANFIS          MLP         Różnica       Zwycięzca
+--------------------------------------------------------------------------------
+MAE (0-1)                  0.0878       0.0553           37.0%           🏆 MLP
+RMSE (0-1)                 0.1065       0.0728           31.6%           🏆 MLP
+MAE (gwiazdki)              0.35⭐        0.22⭐           0.13⭐           🏆 MLP
+RMSE (gwiazdki)             0.43⭐        0.29⭐           0.13⭐           🏆 MLP
+
+INTERPRETACJA:
+- MLP myli się średnio o 0.22 gwiazdki
+- ANFIS myli się średnio o 0.35 gwiazdki
+- MLP jest o 37.0% dokładniejszy
+
+2. ANALIZA JAKOŚCIOWA
+======================
+
+ANFIS - ZALETY:
+Interpretowalność: Reguły IF-THEN są czytelne dla człowieka
+Cold Start: Działa dla nowych użytkowników (formularz onboarding)
+Wyjaśnialność: Można pokazać "dlaczego polecamy ten film"
+
+MLP - ZALETY:
+Najwyższa dokładność: MAE = 0.22⭐ (najlepsze)
+Wszystkie cechy: 5 aspektów (kompletna informacja)
+
+3. WNIOSKI
+==========
+Zalecamy HYBRYDOWE PODEJŚCIE: ANFIS dla nowych użytkowników i wyjaśnień, MLP dla rankingu końcowego.
+
+5. PLIKI WYGENEROWANE
+======================
+- Tabela metryk: comparison_anfis_mlp_20260113_211926\comparison_table.csv
+- Wykresy: comparison_anfis_mlp_20260113_211926/
+
+================================================================================
+KONIEC RAPORTU
+================================================================================
