@@ -1,0 +1,105 @@
+
+================================================================================
+RAPORT PORÓWNAWCZY: ANFIS vs MLP
+================================================================================
+Data: 2026-01-12 18:34:05
+
+1. METRYKI ILOŚCIOWE
+====================
+
+Metryka                     ANFIS          MLP         Różnica       Zwycięzca
+--------------------------------------------------------------------------------
+MAE (0-1)                  0.0999       0.0553           44.6%           🏆 MLP
+RMSE (0-1)                 0.1200       0.0728           39.3%           🏆 MLP
+MAE (gwiazdki)              0.40⭐        0.22⭐           0.18⭐           🏆 MLP
+RMSE (gwiazdki)             0.48⭐        0.29⭐           0.19⭐           🏆 MLP
+
+INTERPRETACJA:
+- MLP myli się średnio o 0.22 gwiazdki
+- ANFIS myli się średnio o 0.40 gwiazdki
+- MLP jest o 44.6% dokładniejszy
+
+2. ANALIZA JAKOŚCIOWA
+======================
+
+ANFIS - ZALETY:
+Interpretowalność: Reguły IF-THEN są czytelne dla człowieka
+Cold Start: Działa dla nowych użytkowników (formularz onboarding)
+Wyjaśnialność: Można pokazać "dlaczego polecamy ten film"
+Zaufanie: Użytkownicy bardziej ufają zrozumiałym rekomendacjom
+Debugowanie: Łatwo znaleźć źródło błędów
+
+ANFIS - WADY:
+Niższa dokładność: MAE o 82% wyższe niż MLP
+Mniej cech: Tylko 3 aspekty (top 3 z EDA)
+Brak uczenia: Statyczne reguły (nie adaptują się)
+
+MLP - ZALETY:
+Najwyższa dokładność: MAE = 0.22⭐ (najlepsze)
+Wszystkie cechy: 5 aspektów (kompletna informacja)
+Prawdziwe uczenie: Backpropagation, gradient descent
+Szybkie trenowanie: 45 epochs z early stopping
+
+MLP - WADY:
+Black box: Trudno wyjaśnić predykcje
+Brak Cold Start: Potrzebuje ≥5 ocen od użytkownika
+Niższe zaufanie: Użytkownicy nie rozumieją "dlaczego"
+
+3. WNIOSKI
+==========
+
+W systemie produkcyjnym zalecamy HYBRYDOWE PODEJŚCIE:
+
+1. COLD START (< 5 ocen):
+   → Użyj ANFIS + formularz onboarding
+   → Wyjaśnienie: "Polecamy bo lubisz filmy z wysoką fabułą"
+   → Zaufanie: Użytkownik rozumie rekomendacje
+
+2. NORMALNI UŻYTKOWNICY (≥ 5 ocen):
+   → Użyj MLP dla dokładności predykcji
+   → Wygeneruj rekomendacje MLP (najdokładniejsze)
+   → Dodaj wyjaśnienia ANFIS (dla zrozumienia)
+
+3. "DLACZEGO POLECAMY":
+   → Użyj reguł ANFIS do generowania wyjaśnień
+   → Przykład: "Ten film ma świetną fabułę (4.8⭐) 
+               i reżyserię (4.7⭐), które cenisz"
+
+To łączy:
+Dokładność MLP (0.22⭐ błędu)
+Interpretowalność ANFIS (reguły IF-THEN)
+Cold Start ANFIS (formularz)
+
+4. REKOMENDACJE IMPLEMENTACYJNE
+================================
+
+KROK 1: Endpoint /recommendations
+```python
+if user.ratings_count < 5:
+    # Cold Start
+    recommendations = anfis.predict(user)
+    explanations = anfis.explain(user, movie)
+else:
+    # Normal
+    recommendations = mlp.predict(user)  # Dokładność
+    explanations = anfis.explain(user, movie)  # Wyjaśnienie
+```
+
+KROK 2: Dashboard
+- Pokaż porównanie ANFIS vs MLP (wykresy)
+- Dodaj przycisk "Dlaczego polecamy?" → ANFIS rules
+- Wizualizuj top 3 aspekty użytkownika
+
+KROK 3: A/B Testing
+- Testuj ANFIS vs MLP vs Hybrid
+- Metryki: Click-through rate, User satisfaction
+
+5. PLIKI WYGENEROWANE
+======================
+- Tabela metryk: comparison_anfis_mlp_20260112_183405\comparison_table.csv
+- Tabela zalet/wad: comparison_anfis_mlp_20260112_183405\advantages_comparison.csv
+- Wykresy: comparison_anfis_mlp_20260112_183405/
+
+================================================================================
+KONIEC RAPORTU
+================================================================================

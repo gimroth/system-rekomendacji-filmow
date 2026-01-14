@@ -1,24 +1,25 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from app.models import user, comment, movie
-# Import bazy danych
+
+# Import zależności od koleżanek
+from app.dependencies import get_current_admin
+
+# Import bazy danych i modeli (KLUCZOWE DLA CIEBIE)
 from app.database import Base, engine
+from app.models import user, comment, movie
 
-# Import modeli
-
-
-# Import Twoich routerów (LOGIKA)
+# Import routerów
 from app.routers import auth, admin, preferences, movies, comments
 
-# Tworzenie tabel w bazie
+# Tworzenie tabel w bazie (musi być po importach modeli)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="System Rekomendacji Filmów")
 
-# Konfiguracja CORS
+# Konfiguracja CORS (Ważne dla komunikacji frontend-backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,6 +42,8 @@ app.include_router(movies.router)
 app.include_router(comments.router)
 
 # --- ENDPOINTY HTML (WIDOKI) ---
+
+# Strona główna (z Twojego kodu - przekierowuje na index/login)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})

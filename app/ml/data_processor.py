@@ -33,7 +33,7 @@ class DataProcessor:
             return pd.DataFrame()
 
         df = pd.DataFrame(results)
-        
+
         cols_to_scale = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction', 'target']
         for col in cols_to_scale:
             # Skalowanie 1-5 na 0-1
@@ -68,7 +68,7 @@ class DataProcessor:
             }
 
         top_3_keys = self._get_top_3_aspect_names(weights)
-        
+
         personalized_input = {}
         for key in top_3_keys:
             # Skalowanie 0-1
