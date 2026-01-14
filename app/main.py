@@ -3,13 +3,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-
+from app.models import user, comment, movie
 # Import bazy danych
 from app.database import Base, engine
 
-# Import modeli (żeby SQLAlchemy wiedziało co stworzyć w bazie)
-# Tutaj łączymy Twoje modele i ewentualne modele dziewczyn
-from app.models import user, comment, preference, movie
+# Import modeli
+
 
 # Import Twoich routerów (LOGIKA)
 from app.routers import auth, admin, preferences, movies, comments
@@ -19,7 +18,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="System Rekomendacji Filmów")
 
-# Konfiguracja CORS (bezpieczeństwo)
+# Konfiguracja CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,27 +27,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Obsługa plików statycznych (CSS, obrazki)
+# Obsługa plików statycznych
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Konfiguracja szablonów HTML
+# Konfiguracja szablonów
 templates = Jinja2Templates(directory="templates")
 
-# --- PODPINANIE ROUTERÓW (API) ---
-# To sprawia, że Twoje logowanie i komentarze działają
+# --- PODPINANIE ROUTERÓW API ---
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
 app.include_router(comments.router)
 
-
 # --- ENDPOINTY HTML (WIDOKI) ---
-# To są strony, które dodały koleżanki
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    # Strona startowa
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/login", response_class=HTMLResponse)

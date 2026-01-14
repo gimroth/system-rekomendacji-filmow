@@ -36,7 +36,7 @@ class UserResponse(BaseModel):
 @router.post("/register", response_model=UserResponse)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
     try:
-        # Sprawdzenie czy user istnieje
+        # Sprawdzenie czy user istnieje (Login LUB Email)
         if db.query(User).filter((User.username == user_data.username) | (User.email == user_data.email)).first():
              raise HTTPException(status_code=400, detail="Użytkownik o takim loginie lub emailu już istnieje")
 
@@ -66,17 +66,20 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
         if not user:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
+        # Obsługa starego i nowego hasła (zabezpieczenie)
         db_pass = getattr(user, 'password_hash', None) or getattr(user, 'password', None)
         
         if not verify_password(user_credentials.password, db_pass):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
+        # Tworzenie tokena
         access_token = create_access_token(data={
             "user_id": user.id,
             "sub": user.username,
             "role": user.role 
         })
         
+        # Odpowiedź zgodna z modelem Token
         return {
             "access_token": access_token, 
             "token_type": "bearer",

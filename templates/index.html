@@ -115,9 +115,10 @@
             }
 
             if (isLoginMode) {
-                // Zapisujemy tokeny
+                // Twoja logika (zgodna z auth.py)
                 localStorage.setItem('accessToken', data.access_token);
-                // Zapisujemy dane usera (ID i rola)
+                
+                // Tworzymy obiekt usera ręcznie, bo backend zwraca płaskie dane
                 const userData = {
                     id: data.user_id,
                     role: data.user_role
@@ -128,7 +129,6 @@
                 if (data.user_role === 'admin') {
                     window.location.href = '/admin-panel';
                 } else {
-                     // Sprawdź czy user chciał iść gdzieś konkretnie
                     const params = new URLSearchParams(window.location.search);
                     const nextUrl = params.get('next');
                     window.location.href = nextUrl || '/home';
@@ -145,6 +145,22 @@
             submitButtonEl.textContent = isLoginMode ? "Zaloguj się" : "Zarejestruj się";
         }
     }
+
+    // BONUS: Strażnik wejścia od dziewczyn (przydatne!)
+    document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('accessToken');
+        const userData = localStorage.getItem('user');
+
+        if (token && userData) {
+            try {
+                const user = JSON.parse(userData);
+                window.location.href = (user.role === 'admin') ? '/admin-panel' : '/home';
+            } catch (e) {
+                // Jeśli dane są uszkodzone, czyścimy
+                localStorage.clear();
+            }
+        }
+    });
 </script>
 </body>
 </html>

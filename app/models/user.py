@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint, TIMESTAMP
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -26,7 +26,7 @@ class UserPreference(Base):
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
-    # Twoje bezpieczne constrainty (1-5)
+    # Wagi (Constrainty 1-5) - to musi zostać dla algorytmu!
     weight_story = Column(Integer, CheckConstraint('weight_story BETWEEN 1 AND 5'), nullable=False)
     weight_acting = Column(Integer, CheckConstraint('weight_acting BETWEEN 1 AND 5'), nullable=False)
     weight_visuals = Column(Integer, CheckConstraint('weight_visuals BETWEEN 1 AND 5'), nullable=False)
@@ -35,5 +35,5 @@ class UserPreference(Base):
 
     onboarding_completed = Column(Boolean, default=True)
     
-    # Back_populates zamyka relację
+    # TO JEST NAJWAŻNIEJSZE - naprawa relacji (z Twojej wersji)
     user = relationship("User", back_populates="preferences")

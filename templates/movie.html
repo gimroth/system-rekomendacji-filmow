@@ -117,7 +117,6 @@
     // --- POPRAWIONA FUNKCJA DEKODUJĄCA TOKEN ---
     function parseJwt(token) {
         try {
-            // Sprawdzenie czy token ma sensowny format (xxx.yyy.zzz)
             if (!token || token.split('.').length !== 3) {
                 console.error("Błędny format tokena JWT");
                 return null;
@@ -126,7 +125,6 @@
             const base64Url = token.split('.')[1];
             let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
             
-            // Fix: Dodanie brakującego paddingu (znaków =), bez których atob() czasem się wywala
             const padding = base64.length % 4;
             if (padding) {
                 base64 += '='.repeat(4 - padding);
@@ -147,8 +145,7 @@
     if (token) {
         const payload = parseJwt(token);
         if (payload) {
-            console.log("Zawartość tokena (Payload):", payload); // Podgląd w konsoli
-            // Backend zazwyczaj trzyma login w 'sub', ale czasem w 'username'
+            console.log("Zawartość tokena (Payload):", payload);
             currentUser = payload.sub || payload.username || payload.name;
         }
     }
@@ -250,17 +247,9 @@
             return;
         }
 
-        console.log("--- DEBUGGER ---");
-        console.log("Zalogowany user:", currentUser);
-
         container.innerHTML = comments.map(c => {
-            // DIAGNOSTYKA:
-            // Jeśli currentUser to "piotr", a c.username to "Piotr", to porównanie === da false.
-            // Dlatego warto czasem dodać .toLowerCase(), ale na razie sprawdzamy wprost.
-            
             const isOwner = currentUser && (c.username === currentUser);
-            // console.log(`Sprawdzam: ${c.username} vs ${currentUser} -> ${isOwner}`);
-
+            
             const actions = isOwner ? `
                 <div class="flex gap-2 opacity-80 hover:opacity-100">
                     <button onclick="startEditComment(${c.id}, this)" class="text-blue-400 hover:text-blue-300 transition px-2" title="Edytuj">
@@ -344,7 +333,6 @@
             </div>
         `;
         
-        // Ukryj przyciski akcji (edytuj/usuń) w nagłówku, żeby nie przeszkadzały
         const actionsDiv = commentDiv.querySelector('.flex.gap-2.opacity-80');
         if (actionsDiv) actionsDiv.classList.add('hidden');
     }
@@ -354,7 +342,6 @@
         const bodyDiv = commentDiv.querySelector('.comment-body');
         bodyDiv.innerHTML = `<p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${originalText}</p>`;
         
-        // Przywróć przyciski
         const actionsDiv = commentDiv.querySelector('.flex.gap-2.hidden');
         if (actionsDiv) actionsDiv.classList.remove('hidden');
     }
