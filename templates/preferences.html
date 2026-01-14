@@ -304,7 +304,7 @@
                 body: JSON.stringify(formData)
             });
             displayMessage(data.message || 'Preferencje zapisano pomyślnie!', 'success');
-            setTimeout(() => { window.location.href = '/recommendations'; }, CONFIG.REDIRECT_DELAY_MS);
+            setTimeout(() => { window.location.href = '/my-recommendations'; }, CONFIG.REDIRECT_DELAY_MS);
         } catch (error) {
             displayMessage(error.message, 'error');
         } finally {
