@@ -8,34 +8,40 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
-        .glass-card {
-            background: rgba(31, 41, 55, 0.6);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(75, 85, 99, 0.4);
-        }
-        .explanation-box {
-            background: rgba(0, 0, 0, 0.2);
-            border-left: 3px solid #3b82f6;
-        }
     </style>
 </head>
 <body class="text-gray-100 p-4 md:p-8">
 
     {% include "navbar.html" %}
 
+    <!-- HEADER Z PRZYCISKIEM WYRÓWNANYM -->
     <div class="max-w-7xl mx-auto mb-8 mt-4">
-        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700 relative overflow-hidden">
-            <div class="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl"></div>
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <!-- Lewa strona: Tytuł + Message -->
+                <div>
+                    <h1 class="text-3xl font-bold text-white mb-2">🎬 Dla Ciebie</h1>
+                    <p id="modelMessage" class="text-blue-400 font-medium flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 bg-blue-500 rounded-full animate-ping"></span>
+                        Inicjalizacja inteligentnego systemu ANFIS...
+                    </p>
+                </div>
 
-            <h1 class="text-3xl font-bold text-white mb-2 relative z-10">🎬 Dla Ciebie</h1>
-            <p id="modelMessage" class="text-blue-400 font-medium relative z-10 flex items-center gap-2">
-                <span class="inline-block w-2 h-2 bg-blue-500 rounded-full animate-ping"></span>
-                Inicjalizacja inteligentnego systemu ANFIS...
-            </p>
+                <!-- Prawa strona: Przycisk WYRÓWNANY -->
+                <button id="refreshBtn"
+                        onclick="refreshRecommendations()"
+                        class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition flex items-center gap-2 whitespace-nowrap self-start md:self-center">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Odśwież rekomendacje
+                </button>
+            </div>
         </div>
     </div>
 
-    <div id="recommendationsGrid" class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+    <!-- GRID FILMÓW (MAX 5 KOLUMN) -->
+    <div id="recommendationsGrid" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         <div id="loading" class="col-span-full text-center py-20">
             <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
             <p class="text-gray-400 font-medium">Model ANFIS analizuje Twoje preferencje...</p>
@@ -44,8 +50,8 @@
 
 <script>
     const API_URL = "http://127.0.0.1:8000";
+    const RECOMMENDATIONS_LIMIT = 10;
 
-    // Ulepszona funkcja dekodowania JWT
     function parseJwt(token) {
         try {
             const base64Url = token.split('.')[1];
@@ -64,10 +70,37 @@
         initRecommendations();
     });
 
+    // FUNKCJA ODŚWIEŻANIA
+    async function refreshRecommendations() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) return;
+
+        const payload = parseJwt(token);
+        const userId = payload?.sub || payload?.id || payload?.user_id;
+        if (!userId) return;
+
+        // Wyczyść cache
+        const cacheKey = `recommendations_${userId}`;
+        localStorage.removeItem(cacheKey);
+        localStorage.removeItem(`${cacheKey}_time`);
+
+        console.log('🔄 Cache wyczyszczony, pobieranie nowych rekomendacji...');
+
+        // Pokaż loader
+        const grid = document.getElementById('recommendationsGrid');
+        grid.innerHTML = `
+            <div class="col-span-full text-center py-20">
+                <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p class="text-gray-400 font-medium">Obliczanie nowych rekomendacji...</p>
+            </div>
+        `;
+
+        // Pobierz nowe
+        await loadRecommendations(userId);
+    }
+
     async function initRecommendations() {
         const grid = document.getElementById('recommendationsGrid');
-
-        // 1. Pobierz token z Local Storage
         const token = localStorage.getItem('accessToken');
 
         if (!token) {
@@ -77,11 +110,9 @@
             return;
         }
 
-        // 2. Wyciągnij ID sprawdzając różne możliwe klucze
         const payload = parseJwt(token);
-        console.log("Token Payload:", payload); // Sprawdź to w F12!
+        console.log("Token Payload:", payload);
 
-        // Sprawdzamy sub, id oraz user_id
         const userId = payload?.sub || payload?.id || payload?.user_id;
 
         if (!userId) {
@@ -100,8 +131,28 @@
         const messageEl = document.getElementById('modelMessage');
 
         try {
-            // Zapytanie do backendu o rekomendacje
-            const res = await fetch(`${API_URL}/recommendations/?user_id=${userId}&limit=12&exclude_rated=true`);
+            // ✅ SPRAWDŹ CACHE
+            const cacheKey = `recommendations_${userId}`;
+            const cachedData = localStorage.getItem(cacheKey);
+            const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+
+            const CACHE_DURATION = 30 * 60 * 1000; // 30 minut
+            const now = Date.now();
+
+            // Jeśli jest cache i nie wygasł
+            if (cachedData && cacheTime && (now - parseInt(cacheTime)) < CACHE_DURATION) {
+                console.log('📦 Używam cache! (ważny przez', Math.round((CACHE_DURATION - (now - parseInt(cacheTime))) / 60000), 'minut)');
+                const data = JSON.parse(cachedData);
+
+                // ✅ BEZ "(z cache)" w message!
+                messageEl.innerHTML = `<span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span> ${data.message}`;
+                renderRecommendations(data, grid);
+                return;
+            }
+
+            // Cache wygasł - pobierz z API
+            console.log('🌐 Pobieranie z API...');
+            const res = await fetch(`${API_URL}/recommendations/?user_id=${userId}&limit=${RECOMMENDATIONS_LIMIT}&exclude_rated=true`);
 
             if(!res.ok) {
                 const errorData = await res.json().catch(() => ({ detail: "Błąd serwera (Model ANFIS)" }));
@@ -109,33 +160,15 @@
             }
 
             const data = await res.json();
+
+            // ✅ ZAPISZ DO CACHE
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+            localStorage.setItem(`${cacheKey}_time`, now.toString());
+            console.log('💾 Zapisano do cache (ważny przez 30 minut)');
+
             messageEl.innerHTML = `<span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span> ${data.message}`;
-            grid.innerHTML = "";
 
-            if(!data.recommendations || data.recommendations.length === 0) {
-                grid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-500">Brak rekomendacji. Oceń więcej filmów lub wypełnij preferencje.</div>`;
-                return;
-            }
-
-            // Renderowanie kart (bez zmian)
-            data.recommendations.forEach(m => {
-                const confClass = m.confidence === 'bardzo wysoka' ? 'text-green-400' : 'text-blue-400';
-                grid.innerHTML += `
-                    <div class="glass-card rounded-xl overflow-hidden flex flex-col group hover:border-blue-500/50 transition duration-300">
-                        <div class="relative aspect-[16/9] overflow-hidden cursor-pointer" onclick="window.location.href='/movie?id=${m.movie_id}'">
-                            <img src="${m.poster_url || 'https://via.placeholder.com/400x225'}" class="w-full h-full object-cover">
-                            <div class="absolute bottom-2 left-3"><span class="text-yellow-400 font-bold">★ ${m.predicted_rating}</span></div>
-                        </div>
-                        <div class="p-5 flex-grow flex flex-col">
-                            <h3 class="font-bold text-white mb-2">${m.title}</h3>
-                            <p class="text-xs text-gray-400 italic mb-4 flex-grow">${m.explanation}</p>
-                            <div class="flex justify-between items-center pt-4 border-t border-gray-700">
-                                <span class="text-[10px] font-bold ${confClass} uppercase">${m.confidence}</span>
-                                <button class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded">SZCZEGÓŁY</button>
-                            </div>
-                        </div>
-                    </div>`;
-            });
+            renderRecommendations(data, grid);
 
         } catch(e) {
             console.error('❌ Błąd:', e);
@@ -146,6 +179,84 @@
                     <p class="text-xs text-gray-500 mt-2 italic">Podpowiedź: Upewnij się, że uzupełniłeś preferencje w swoim profilu.</p>
                 </div>`;
         }
+    }
+
+    // ✅ RENDEROWANIE W STYLU HOME
+    function renderRecommendations(data, grid) {
+        grid.innerHTML = "";
+
+        if(!data.recommendations || data.recommendations.length === 0) {
+            grid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-500">Brak rekomendacji. Oceń więcej filmów lub wypełnij preferencje.</div>`;
+            return;
+        }
+
+        data.recommendations.forEach(m => {
+            // Mapowanie confidence na kolory i polskie nazwy
+            let confidenceClass = '';
+            let confidenceText = '';
+
+            if (m.confidence === 'bardzo wysoka') {
+                confidenceClass = 'bg-green-600/90';
+                confidenceText = 'BARDZO POLECAM';
+            } else if (m.confidence === 'wysoka') {
+                confidenceClass = 'bg-blue-600/90';
+                confidenceText = 'POLECAM';
+            } else if (m.confidence === 'średnia') {
+                confidenceClass = 'bg-yellow-600/90';
+                confidenceText = 'WARTO SPRAWDZIĆ';
+            } else {
+                confidenceClass = 'bg-gray-600/90';
+                confidenceText = 'MOŻE SIĘ SPODOBAĆ';
+            }
+
+            // Tworzenie karty (JAK HOME)
+            const card = document.createElement('div');
+            card.className = 'bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group';
+            card.onclick = () => window.location.href = `/movie?id=${m.movie_id}`;
+
+            card.innerHTML = `
+                <!-- POSTER (aspect-ratio 2:3 jak plakat) -->
+                <div class="relative aspect-[2/3]">
+                    <img src="${m.poster_url || 'https://via.placeholder.com/300x450'}"
+                         class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition"
+                         alt="${m.title}">
+
+                    <!-- RATING (górny prawy róg) -->
+                    <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
+                        ★ ${m.predicted_rating}
+                    </div>
+
+                    <!-- CONFIDENCE BADGE (dolny lewy) -->
+                    <div class="absolute bottom-2 left-2 ${confidenceClass} backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white border border-white/20">
+                        ${confidenceText}
+                    </div>
+                </div>
+
+                <!-- INFO -->
+                <div class="p-4">
+                    <!-- TYTUŁ (2 linie max) -->
+                    <h3 class="font-bold text-white text-sm line-clamp-2 group-hover:text-blue-400 transition mb-2 leading-tight min-h-[2.5rem]">
+                        ${m.title}
+                    </h3>
+
+                    <!-- WYJAŚNIENIE (3 linie max) -->
+                    <p class="text-xs text-gray-400 italic line-clamp-3 leading-relaxed min-h-[3rem]">
+                        ${m.explanation}
+                    </p>
+
+                    <!-- GATUNKI (opcjonalnie) -->
+                    ${m.genres && m.genres.length > 0 ? `
+                        <div class="flex flex-wrap gap-1 mt-3">
+                            ${m.genres.slice(0, 3).map(g =>
+                                `<span class="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">${g}</span>`
+                            ).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
     }
 </script>
 </body>
