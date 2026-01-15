@@ -47,10 +47,12 @@ class DataProcessor:
             return pd.DataFrame()
 
         df = pd.DataFrame(results)
+
         cols_to_scale = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction', 'target']
         for col in cols_to_scale:
             # Skalowanie 1-5 na 0-1
             df[col] = (df[col].astype(float) - 1) / 4
+            # Zabezpieczenie (clip) - to jest to co dodały dziewczyny, bardzo ważne!
             df[col] = df[col].clip(lower=0, upper=1)
 
         return df
@@ -81,6 +83,7 @@ class DataProcessor:
             }
 
         top_3_keys = self._get_top_3_aspect_names(weights)
+
         personalized_input = {}
         for key in top_3_keys:
             # Skalowanie 0-1

@@ -6,16 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
         .backdrop-gradient { background: linear-gradient(to top, #1f2937 5%, transparent 100%); }
-
         nav {
             background-color: rgba(17, 24, 39, 0.4) !important;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(75, 85, 99, 0.6) !important;
         }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
     </style>
 </head>
 <body class="text-gray-100 relative">
@@ -48,7 +52,9 @@
         </div>
 
         <div class="max-w-7xl mx-auto px-6 mt-16 grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
             <div class="lg:col-span-2 space-y-8">
+                
                 <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
                     <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Opis Fabuły</h2>
                     <p id="movieDesc" class="text-gray-300 leading-relaxed"></p>
@@ -58,6 +64,33 @@
                     <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Obsada</h2>
                     <div id="castGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
                 </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Komentarze</h2>
+                
+                    <div id="addCommentSection" class="hidden mb-6">
+                        <textarea id="commentContent" 
+                                  class="w-full bg-gray-900 text-gray-100 border border-gray-600 rounded-lg p-3 focus:outline-none focus:border-blue-500 placeholder-gray-500 transition"
+                                  rows="3" 
+                                  placeholder="Podziel się swoją opinią o filmie..."></textarea>
+                        <div class="flex justify-end mt-2">
+                            <button onclick="postComment()" 
+                                    class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-6 rounded-lg transition duration-200">
+                                Wyślij
+                            </button>
+                        </div>
+                    </div>
+                
+                    <div id="loginPrompt" class="hidden mb-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600 text-gray-300 text-sm flex items-center gap-2">
+                        <i class="ph ph-sign-in text-xl text-blue-400"></i>
+                        <span><a id="loginLink" href="/login" class="text-blue-400 hover:text-blue-300 font-bold underline">Zaloguj się</a>, aby dodać komentarz.</span>
+                    </div>
+                
+                    <div id="commentsList" class="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                        <p class="text-gray-500 text-sm italic">Ładowanie komentarzy...</p>
+                    </div>
+                </div>
+
             </div>
 
             <div class="space-y-8">
@@ -78,10 +111,63 @@
 
 <script>
     const API_URL = "http://127.0.0.1:8000";
+    const token = localStorage.getItem('accessToken'); 
+    let currentUser = null;
+
+    // --- POPRAWIONA FUNKCJA DEKODUJĄCA TOKEN ---
+    function parseJwt(token) {
+        try {
+            if (!token || token.split('.').length !== 3) {
+                console.error("Błędny format tokena JWT");
+                return null;
+            }
+
+            const base64Url = token.split('.')[1];
+            let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            
+            const padding = base64.length % 4;
+            if (padding) {
+                base64 += '='.repeat(4 - padding);
+            }
+
+            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            console.error("Błąd dekodowania tokena:", e);
+            return null;
+        }
+    }
+
+    // --- PRÓBA WYCIĄGNIĘCIA NAZWY UŻYTKOWNIKA ---
+    if (token) {
+        const payload = parseJwt(token);
+        if (payload) {
+            console.log("Zawartość tokena (Payload):", payload);
+            currentUser = payload.sub || payload.username || payload.name;
+        }
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         loadMovieDetails();
+        setupCommentForm(); 
     });
+
+    function setupCommentForm() {
+        if (token) {
+            document.getElementById('addCommentSection').classList.remove('hidden');
+            document.getElementById('loginPrompt').classList.add('hidden');
+        } else {
+            document.getElementById('addCommentSection').classList.add('hidden');
+            document.getElementById('loginPrompt').classList.remove('hidden');
+            
+            const currentPath = window.location.pathname + window.location.search;
+            const loginUrl = `/login?next=${encodeURIComponent(currentPath)}`;
+            document.getElementById('loginLink').setAttribute('href', loginUrl);
+        }
+    }
 
     async function loadMovieDetails() {
         const params = new URLSearchParams(window.location.search);
@@ -93,7 +179,9 @@
             if(!res.ok) throw new Error("Błąd pobierania");
             const data = await res.json();
             renderMovie(data);
+            loadComments(movieId); 
         } catch(e) {
+            console.error(e);
             document.getElementById('loading').innerText = "Nie udało się załadować filmu.";
         }
     }
@@ -113,6 +201,7 @@
 
         const castGrid = document.getElementById('castGrid');
         if(data.extras.cast && data.extras.cast.length > 0) {
+            castGrid.innerHTML = ''; 
             data.extras.cast.forEach(actor => {
                 const photo = actor.photo || "https://via.placeholder.com/100x150?text=No+Img";
                 castGrid.innerHTML += `
@@ -128,22 +217,154 @@
         } else { castGrid.innerHTML = '<span class="text-gray-500 text-sm">Brak danych.</span>'; }
 
         if(data.extras.trailer) {
-            document.getElementById('trailerContainer').innerHTML = `
-                <iframe width="100%" height="100%"
-                    src="https://www.youtube.com/embed/${data.extras.trailer}"
-                    title="Trailer" frameborder="0" allowfullscreen>
-                </iframe>
-            `;
+            document.getElementById('trailerContainer').innerHTML = `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${data.extras.trailer}" title="Trailer" frameborder="0" allowfullscreen></iframe>`;
         }
-
         const imgGrid = document.getElementById('imagesGrid');
         if(data.extras.images && data.extras.images.length > 0) {
+             imgGrid.innerHTML = '';
              data.extras.images.slice(0, 4).forEach(imgUrl => {
-                 imgGrid.innerHTML += `<img src="${imgUrl}" class="rounded-lg border border-gray-600 opacity-80 hover:opacity-100 transition cursor-pointer">`;
+                 imgGrid.innerHTML += `<img src="${imgUrl}" class="rounded-lg border border-gray-600 opacity-80 hover:opacity-100 transition cursor-pointer object-cover h-24 w-full">`;
              });
         }
     }
 
+    // --- OBSŁUGA KOMENTARZY ---
+
+    async function loadComments(movieId) {
+        try {
+            const res = await fetch(`${API_URL}/comments/movie/${movieId}`);
+            if (res.ok) {
+                const comments = await res.json();
+                renderComments(comments);
+            }
+        } catch (e) { console.error("Błąd sieci", e); }
+    }
+
+    function renderComments(comments) {
+        const container = document.getElementById('commentsList');
+        if (comments.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-sm italic">Brak komentarzy. Bądź pierwszy!</p>';
+            return;
+        }
+
+        container.innerHTML = comments.map(c => {
+            const isOwner = currentUser && (c.username === currentUser);
+            
+            const actions = isOwner ? `
+                <div class="flex gap-2 opacity-80 hover:opacity-100">
+                    <button onclick="startEditComment(${c.id}, this)" class="text-blue-400 hover:text-blue-300 transition px-2" title="Edytuj">
+                        <i class="ph ph-pencil-simple text-lg"></i>
+                    </button>
+                    <button onclick="deleteComment(${c.id})" class="text-red-400 hover:text-red-300 transition px-2" title="Usuń">
+                        <i class="ph ph-trash text-lg"></i>
+                    </button>
+                </div>
+            ` : '';
+
+            return `
+            <div id="comment-${c.id}" class="bg-gray-700/30 p-4 rounded-lg border border-gray-700 hover:bg-gray-700/50 transition group">
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white uppercase">
+                            ${c.username.charAt(0)}
+                        </div>
+                        <span class="font-bold text-blue-400 text-sm">${c.username}</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs text-gray-500">${new Date(c.created_at).toLocaleDateString()}</span>
+                        ${actions}
+                    </div>
+                </div>
+                <div class="comment-body">
+                    <p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${c.content}</p>
+                </div>
+            </div>
+        `}).join('');
+    }
+
+    async function postComment() {
+        const content = document.getElementById('commentContent').value;
+        const params = new URLSearchParams(window.location.search);
+        const movieId = params.get('id');
+
+        if (!content.trim()) return alert("Wpisz treść komentarza!");
+
+        try {
+            const res = await fetch(`${API_URL}/comments/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ content: content, movie_id: parseInt(movieId) })
+            });
+
+            if (res.ok) {
+                document.getElementById('commentContent').value = ''; 
+                loadComments(movieId); 
+            } else {
+                alert("Błąd. Spróbuj ponownie.");
+            }
+        } catch (e) { alert("Wystąpił błąd sieci."); }
+    }
+
+    async function deleteComment(commentId) {
+        if(!confirm("Czy na pewno chcesz usunąć ten komentarz?")) return;
+        try {
+            const res = await fetch(`${API_URL}/comments/${commentId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if(res.ok) {
+                document.getElementById(`comment-${commentId}`).remove();
+            } else {
+                alert("Nie udało się usunąć komentarza.");
+            }
+        } catch(e) { alert("Błąd sieci."); }
+    }
+
+    function startEditComment(commentId, btnElement) {
+        const commentDiv = document.getElementById(`comment-${commentId}`);
+        const bodyDiv = commentDiv.querySelector('.comment-body');
+        const currentText = bodyDiv.innerText;
+
+        bodyDiv.innerHTML = `
+            <textarea id="edit-input-${commentId}" class="w-full bg-gray-800 text-white border border-gray-600 rounded p-2 text-sm focus:border-blue-500 focus:outline-none mb-2 min-h-[80px]">${currentText}</textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="cancelEdit(${commentId}, '${currentText.replace(/'/g, "\\'")}')" class="text-xs text-gray-400 hover:text-white px-2 py-1">Anuluj</button>
+                <button onclick="saveEdit(${commentId})" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Zapisz</button>
+            </div>
+        `;
+        
+        const actionsDiv = commentDiv.querySelector('.flex.gap-2.opacity-80');
+        if (actionsDiv) actionsDiv.classList.add('hidden');
+    }
+
+    function cancelEdit(commentId, originalText) {
+        const commentDiv = document.getElementById(`comment-${commentId}`);
+        const bodyDiv = commentDiv.querySelector('.comment-body');
+        bodyDiv.innerHTML = `<p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${originalText}</p>`;
+        
+        const actionsDiv = commentDiv.querySelector('.flex.gap-2.hidden');
+        if (actionsDiv) actionsDiv.classList.remove('hidden');
+    }
+
+    async function saveEdit(commentId) {
+        const newContent = document.getElementById(`edit-input-${commentId}`).value;
+        if(!newContent.trim()) return alert("Treść nie może być pusta");
+
+        try {
+            const res = await fetch(`${API_URL}/comments/${commentId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ content: newContent })
+            });
+
+            if(res.ok) {
+                const params = new URLSearchParams(window.location.search);
+                loadComments(params.get('id')); 
+            } else {
+                alert("Błąd podczas edycji.");
+            }
+        } catch(e) { alert("Błąd sieci."); }
+    }
 </script>
 </body>
 </html>

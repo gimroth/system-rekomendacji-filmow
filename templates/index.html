@@ -115,22 +115,36 @@
             }
 
             if (isLoginMode) {
-                // KLUCZOWE: Zapisujemy tokeny ORAZ obiekt użytkownika z rolą
+                // --- TU JEST POŁĄCZENIE TWOJEGO KODU Z KODEM NADII ---
+                
+                // 1. Zapisujemy token (standardowo)
                 localStorage.setItem('accessToken', data.access_token);
-                localStorage.setItem('refreshToken', data.refresh_token);
-                localStorage.setItem('user', JSON.stringify(data.user));
+                
+                // 2. Tworzymy obiekt użytkownika, którego Nadia potrzebuje
+                // Backend zwraca "user_role", a Nadia chce mieć obiekt "user" z polem "role"
+                const userObject = {
+                    id: data.user_id,
+                    username: username, // Bierzemy z formularza, bo backend tego nie zwrócił w JSON
+                    role: data.user_role // To jest najważniejsze dla Nadii!
+                };
+                
+                // Zapisujemy obiekt user, żeby inne podstrony (Nadii) działały
+                localStorage.setItem('user', JSON.stringify(userObject));
 
-                // DYNAMICZNE PRZEKIEROWANIE
-                if (data.user.role === 'admin') {
-                    window.location.href = '/admin-panel';
+                // 3. Logika przekierowania (Nadii)
+                if (userObject.role === 'admin') {
+                    window.location.href = '/admin-panel'; // Logika Nadii
                 } else {
-                    window.location.href = '/home';
+                    const params = new URLSearchParams(window.location.search);
+                    const nextUrl = params.get('next');
+                    window.location.href = nextUrl || '/home';
                 }
             } else {
                 displayMessage("Konto utworzone! Możesz się teraz zalogować.", false);
                 toggleMode();
             }
         } catch (error) {
+            console.error(error);
             displayMessage("Błąd połączenia z serwerem API.", true);
         } finally {
             submitButtonEl.disabled = false;
@@ -138,14 +152,23 @@
         }
     }
 
-    // Strażnik wejścia: Jeśli ktoś wejdzie na /login będąc zalogowanym, przekieruj go
+    // Strażnik wejścia (Logika Nadii + poprawki bezpieczeństwa)
     document.addEventListener('DOMContentLoaded', () => {
         const token = localStorage.getItem('accessToken');
         const userData = localStorage.getItem('user');
 
         if (token && userData) {
-            const user = JSON.parse(userData);
-            window.location.href = (user.role === 'admin') ? '/admin-panel' : '/home';
+            try {
+                const user = JSON.parse(userData);
+                // Sprawdzamy rolę tak jak chciała Nadia
+                if (user.role === 'admin') {
+                    window.location.href = '/admin-panel';
+                } else {
+                    window.location.href = '/home';
+                }
+            } catch (e) {
+                localStorage.clear();
+            }
         }
     });
 </script>
