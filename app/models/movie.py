@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -13,12 +13,12 @@ class Movie(Base):
     tmdb_id = Column(Integer, unique=True, nullable=True)
     description = Column(Text, nullable=True)
     poster_url = Column(Text, nullable=True)
+    rating = Column(Float, default=0.0)
 
-    # Wiele-do-Wielu z Genre
+    # Relacje
     genres = relationship("Genre", secondary="movie_genres", back_populates="movies", overlaps="movie,genre")
-
-    # Relacja do MovieGenre
     movie_genres = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan", overlaps="genres")
-
-    # Jeden-do-Wielu z Rating
     ratings = relationship("Rating", back_populates="movie", cascade="all, delete-orphan")
+    
+    # Relacja do komentarzy (musi pasować do back_populates="movie" w Comment)
+    comments = relationship("Comment", back_populates="movie", cascade="all, delete-orphan")
