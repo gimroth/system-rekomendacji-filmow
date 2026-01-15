@@ -1,25 +1,38 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager
 
-# --- IMPORTY ZALEŻNOŚCI ---
-from app.dependencies import get_current_admin
-
-# --- IMPORTY MODELI (Baza Danych) ---
+# --- IMPORTY BAZY DANYCH ---
 from app.database import Base, engine
-# Dodajemy 'rating' do importów, aby baza utworzyła tabelę 'ratings'
+# Importujemy modele, aby SQLAlchemy utworzyło tabele
 from app.models import user, comment, movie, rating
 
+# --- POPRAWIONY IMPORT MODELU ML ---
+# Teraz importujemy z pliku app/ml/anfis_model.py, gdzie dodałeś funkcję load_anfis_model
+from app.ml.anfis_model import load_anfis_model
+
 # --- IMPORTY ROUTERÓW ---
-# Dodajemy 'ratings' do listy routerów
 from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
 
 # Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="System Rekomendacji Filmów")
+# --- CYKL ŻYCIA APLIKACJI (LIFESPAN) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Kod uruchamiany przy starcie serwera
+    load_anfis_model() 
+    yield
+    # Kod uruchamiany przy zamknięciu (opcjonalnie)
+
+# --- INICJALIZACJA APLIKACJI ---
+app = FastAPI(
+    title="System Rekomendacji Filmów",
+    lifespan=lifespan
+)
 
 # Konfiguracja CORS
 app.add_middleware(
@@ -43,10 +56,9 @@ app.include_router(preferences.router)
 app.include_router(movies.router)
 app.include_router(comments.router)
 app.include_router(recommendations.router)
-app.include_router(ratings.router)  # <--- NOWOŚĆ: Router ocen
+app.include_router(ratings.router)
 
-# --- ENDPOINTY HTML (WIDOKI) ---
-
+# --- WIDOKI HTML ---
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})

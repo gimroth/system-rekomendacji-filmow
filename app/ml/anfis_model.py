@@ -2,7 +2,7 @@
 Model ANFIS z logiką MATCH i naprawioną inicjalizacją.
 Naprawiono: błąd _rule_generator oraz AttributeError: evaluate.
 """
-
+import os
 import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
@@ -84,3 +84,27 @@ class ANFISRecommender:
     @staticmethod
     def load(path: str):
         with open(path, 'rb') as f: return pickle.load(f)
+        anfis_system = None
+
+def load_anfis_model():
+    """Funkcja ładowana przez main.py przy starcie serwera."""
+    global anfis_system
+    
+    # Ścieżka do pliku .pkl (zakładamy, że jest w folderze app/ml/models/)
+    # __file__ to ścieżka do tego pliku (anfis_model.py)
+    current_dir = os.path.dirname(__file__)
+    model_path = os.path.join(current_dir, "models", "anfis_latest.pkl")
+    
+    if os.path.exists(model_path):
+        try:
+            with open(model_path, "rb") as f:
+                anfis_system = pickle.load(f)
+            print(f"✅ ANFIS: Załadowano model z {model_path}")
+        except Exception as e:
+            print(f"❌ ANFIS: Błąd ładowania modelu: {e}")
+    else:
+        print(f"⚠️ ANFIS: Nie znaleziono pliku modelu w {model_path}")
+
+def get_anfis_model():
+    """Getter używany przez router do pobrania modelu."""
+    return anfis_system
