@@ -176,6 +176,47 @@ print(f"\n✅ Sukces! Pliki zapisane w: {OUTPUT_DIR}/")
 print(f"   - comparison_report.txt\n   - metrics_comparison.png\n   - features_comparison.png")
 
 ==================================================
+PLIK: .\fix_comments_relation.py
+==================================================
+from sqlalchemy import text
+from app.database import engine
+
+def fix_comments():
+    print("--- NAPRAWA RELACJI KOMENTARZY (PostgreSQL) ---")
+    
+    # 1. Upewniamy się, że kolumna istnieje
+    sql_col = text("ALTER TABLE comments ADD COLUMN IF NOT EXISTS movie_id INTEGER;")
+    
+    # 2. Naprawiamy klucz obcy (usuwamy stary jeśli błędny i dodajemy nowy)
+    sql_fk = text("""
+        DO $$ 
+        BEGIN 
+            IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'fk_comments_movies') THEN 
+                ALTER TABLE comments DROP CONSTRAINT fk_comments_movies; 
+            END IF; 
+        END $$;
+        
+        ALTER TABLE comments 
+        ADD CONSTRAINT fk_comments_movies 
+        FOREIGN KEY (movie_id) 
+        REFERENCES movies(id) 
+        ON DELETE CASCADE;
+    """)
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(sql_col)
+            print("Kolumna movie_id sprawdzona.")
+            conn.execute(sql_fk)
+            conn.commit()
+            print("SUKCES: Relacja komentarzy z filmami została naprawiona w bazie.")
+    except Exception as e:
+        print(f"Błąd SQL: {e}")
+
+if __name__ == "__main__":
+    fix_comments()
+
+==================================================
 PLIK: .\links.csv
 ==================================================
 movieId,imdbId,tmdbId
@@ -1049,23 +1090,37 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager # <--- 1. NOWY IMPORT
 
 # --- IMPORTY ZALEŻNOŚCI ---
-# Od dziewczyn:
 from app.dependencies import get_current_admin
+# --- WAŻNE: Import ładowania modelu ---
+from app.ml.utils import load_anfis_model # <--- 2. TEGO BRAKOWAŁO!
 
-# Baza danych i modele (Twoje - KLUCZOWE):
+# --- IMPORTY MODELI (Baza Danych) ---
 from app.database import Base, engine
-from app.models import user, comment, movie
+from app.models import user, comment, movie, rating
 
 # --- IMPORTY ROUTERÓW ---
-# Łączymy routery Twoje (auth, admin, movies, comments) i dziewczyn (preferences, recommendations)
-from app.routers import auth, admin, preferences, movies, comments, recommendations
+from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
 
-# Tworzenie tabel w bazie (musi być po importach modeli)
+# Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="System Rekomendacji Filmów")
+# --- 3. FUNKCJA STARTOWA (LIFESPAN) ---
+# To ona odpowiada za załadowanie modelu ANFIS przy starcie serwera
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Kod uruchamiany przy starcie
+    load_anfis_model() 
+    yield
+    # Kod uruchamiany przy zamknięciu (opcjonalnie)
+
+# --- INICJALIZACJA APLIKACJI Z LIFESPAN ---
+app = FastAPI(
+    title="System Rekomendacji Filmów",
+    lifespan=lifespan  # <--- 4. PRZYPISANIE FUNKCJI STARTOWEJ
+)
 
 # Konfiguracja CORS
 app.add_middleware(
@@ -1087,12 +1142,12 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
-app.include_router(comments.router)       # Twój router
-app.include_router(recommendations.router) # Router od dziewczyn
+app.include_router(comments.router)
+app.include_router(recommendations.router)
+app.include_router(ratings.router)
 
 # --- ENDPOINTY HTML (WIDOKI) ---
 
-# Strona główna - zostawiamy Twoją wersję HTML (lepsza dla użytkownika niż JSON)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -1121,7 +1176,6 @@ async def movie_detail_page(request: Request):
 async def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
-# --- NOWE WIDOKI OD DZIEWCZYN ---
 @app.get("/onboarding", response_class=HTMLResponse)
 async def preferences_page(request: Request):
     return templates.TemplateResponse("preferences.html", {"request": request})
@@ -1752,27 +1806,30 @@ Zastosowana struktura zapewnia balans między precyzją (RMSE) a interpretowalno
 ==================================================
 PLIK: .\app\models\comment.py
 ==================================================
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime
 from sqlalchemy.orm import relationship
-from datetime import datetime
-from ..database import Base
+from sqlalchemy.sql import func
+from app.database import Base
 
 class Comment(Base):
     __tablename__ = "comments"
 
     id = Column(Integer, primary_key=True, index=True)
-    content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Treść komentarza
+    content = Column(Text, nullable=False)
     
-    # Klucz obcy do użytkownika
-    user_id = Column(Integer, ForeignKey("users.id"))
+    # Klucz obcy do UŻYTKOWNIKA
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     
-    # ID filmu (z pliku CSV)
-    movie_id = Column(Integer, nullable=False) 
+    # --- TO JEST BRAKUJĄCY ELEMENT, KTÓRY WYWOŁUJE BŁĄD ---
+    # Klucz obcy do FILMU
+    movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relacja zwrotna
-    # "comments" tutaj musi odpowiadać nazwie zmiennej w klasie User (którą dodaliśmy wyżej)
+    # Relacje zwrotne
     user = relationship("User", back_populates="comments")
+    movie = relationship("Movie", back_populates="comments")
 
 ==================================================
 PLIK: .\app\models\genre.py
@@ -1809,7 +1866,7 @@ class Genre(Base):
 ==================================================
 PLIK: .\app\models\movie.py
 ==================================================
-from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -1824,16 +1881,15 @@ class Movie(Base):
     tmdb_id = Column(Integer, unique=True, nullable=True)
     description = Column(Text, nullable=True)
     poster_url = Column(Text, nullable=True)
+    rating = Column(Float, default=0.0)
 
-    # Wiele-do-Wielu z Genre
+    # Relacje
     genres = relationship("Genre", secondary="movie_genres", back_populates="movies", overlaps="movie,genre")
-
-    # Relacja do MovieGenre
     movie_genres = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan", overlaps="genres")
-
-    # Jeden-do-Wielu z Rating
     ratings = relationship("Rating", back_populates="movie", cascade="all, delete-orphan")
-
+    
+    # Relacja do komentarzy (musi pasować do back_populates="movie" w Comment)
+    comments = relationship("Comment", back_populates="movie", cascade="all, delete-orphan")
 
 ==================================================
 PLIK: .\app\models\rating.py
@@ -1882,7 +1938,7 @@ class Rating(Base):
 ==================================================
 PLIK: .\app\models\user.py
 ==================================================
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -1897,11 +1953,9 @@ class User(Base):
     role = Column(String(20), default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relacje
+    # --- RELACJE ---
     ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
-    # To jest kluczowe dla komentarzy:
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
-    # Relacja do preferencji
     preferences = relationship("UserPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
@@ -1910,7 +1964,7 @@ class UserPreference(Base):
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
-    # Wagi (Constrainty 1-5) - to musi zostać dla algorytmu!
+    # Wagi (Constrainty 1-5)
     weight_story = Column(Integer, CheckConstraint('weight_story BETWEEN 1 AND 5'), nullable=False)
     weight_acting = Column(Integer, CheckConstraint('weight_acting BETWEEN 1 AND 5'), nullable=False)
     weight_visuals = Column(Integer, CheckConstraint('weight_visuals BETWEEN 1 AND 5'), nullable=False)
@@ -1919,7 +1973,6 @@ class UserPreference(Base):
 
     onboarding_completed = Column(Boolean, default=True)
     
-    # TO JEST NAJWAŻNIEJSZE - naprawa relacji (z Twojej wersji)
     user = relationship("User", back_populates="preferences")
 
 ==================================================
@@ -2247,12 +2300,14 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
 PLIK: .\app\routers\comments.py
 ==================================================
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
+from datetime import datetime  # Ważny import
 
 from app.database import get_db
 from app.models.comment import Comment
 from app.models.user import User
+from app.models.movie import Movie
 from app.schemas.comment_schemas import CommentCreate, CommentResponse, CommentUpdate
 from app.dependencies import get_current_user
 
@@ -2263,48 +2318,74 @@ router = APIRouter(
 
 # 1. Dodawanie komentarza
 @router.post("/", response_model=CommentResponse)
-async def create_comment(
+def create_comment(
     comment: CommentCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    movie = db.query(Movie).filter(Movie.id == comment.movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Film nie istnieje")
+
+    # Generujemy czas w Pythonie
+    current_time = datetime.now()
+
     new_comment = Comment(
         content=comment.content,
         movie_id=comment.movie_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        created_at=current_time
     )
+    
     db.add(new_comment)
     db.commit()
     db.refresh(new_comment)
-    
+
     return CommentResponse(
         id=new_comment.id,
         content=new_comment.content,
-        created_at=new_comment.created_at,
+        created_at=current_time,
         movie_id=new_comment.movie_id,
-        username=current_user.username,
-        user_id=current_user.id
+        user_id=new_comment.user_id,
+        username=current_user.username
     )
 
-# 2. Pobieranie komentarzy (publiczne)
+# 2. Pobieranie komentarzy (POPRAWIONE)
 @router.get("/movie/{movie_id}", response_model=List[CommentResponse])
-async def read_comments(movie_id: int, db: Session = Depends(get_db)):
-    comments = db.query(Comment).filter(Comment.movie_id == movie_id).order_by(Comment.created_at.desc()).all()
+def read_comments(movie_id: int, db: Session = Depends(get_db)):
+    comments = db.query(Comment)\
+        .options(joinedload(Comment.user))\
+        .filter(Comment.movie_id == movie_id)\
+        .order_by(Comment.created_at.desc())\
+        .all()
     
-    return [
-        CommentResponse(
-            id=c.id,
-            content=c.content,
-            created_at=c.created_at,
-            movie_id=c.movie_id,
-            username=c.user.username if c.user else "Nieznany",
-            user_id=c.user_id
-        ) for c in comments
-    ]
+    results = []
+    for c in comments:
+        # ZABEZPIECZENIE:
+        # Jeśli w bazie jest stary komentarz bez daty (None), 
+        # podstawiamy "teraz", żeby nie wywaliło błędu 500.
+        safe_date = c.created_at if c.created_at is not None else datetime.now()
+        
+        # ZABEZPIECZENIE 2:
+        # Jeśli użytkownik został usunięty z bazy, wpisujemy "Nieznany"
+        safe_username = c.user.username if c.user else "Nieznany użytkownik"
+
+        results.append(
+            CommentResponse(
+                id=c.id,
+                content=c.content,
+                created_at=safe_date,  # Używamy bezpiecznej daty
+                movie_id=c.movie_id,
+                user_id=c.user_id,
+                username=safe_username
+            )
+        )
+    
+    return results
 
 # 3. Usuwanie komentarza
 @router.delete("/{comment_id}")
-async def delete_comment(
+def delete_comment(
     comment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -2315,17 +2396,16 @@ async def delete_comment(
     if not comment:
         raise HTTPException(status_code=404, detail="Komentarz nie istnieje")
 
-    # Sprawdzenie uprawnień (czy to autor lub admin)
     if comment.user_id != current_user.id and current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Nie masz uprawnień do usunięcia tego komentarza")
+        raise HTTPException(status_code=403, detail="Brak uprawnień")
 
     comment_query.delete(synchronize_session=False)
     db.commit()
     return {"message": "Usunięto komentarz"}
 
-# 4. Edycja komentarza (NOWE)
+# 4. Edycja komentarza
 @router.put("/{comment_id}", response_model=CommentResponse)
-async def update_comment(
+def update_comment(
     comment_id: int,
     comment_update: CommentUpdate,
     db: Session = Depends(get_db),
@@ -2340,18 +2420,20 @@ async def update_comment(
     if db_comment.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Nie możesz edytować cudzego komentarza")
 
-    # Aktualizacja
     db_comment.content = comment_update.content
     db.commit()
     db.refresh(db_comment)
 
+    # Zabezpieczenie daty przy edycji
+    safe_date = db_comment.created_at if db_comment.created_at else datetime.now()
+
     return CommentResponse(
         id=db_comment.id,
         content=db_comment.content,
-        created_at=db_comment.created_at,
+        created_at=safe_date,
         movie_id=db_comment.movie_id,
-        username=current_user.username,
-        user_id=current_user.id
+        user_id=db_comment.user_id,
+        username=current_user.username
     )
 
 ==================================================
@@ -2587,6 +2669,104 @@ def complete_onboarding(
         "message": "Preferencje zostały zapisane pomyślnie!",
         "preferred_genres": prefs.preferred_genres
     }
+
+==================================================
+PLIK: .\app\routers\ratings.py
+==================================================
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.database import get_db
+from app.models.rating import Rating
+from app.models.user import User
+from app.models.movie import Movie  # <--- Musimy zaimportować model Filmu
+from app.schemas.rating import RatingCreate, RatingResponse
+from app.dependencies import get_current_user
+
+router = APIRouter(
+    prefix="/ratings",
+    tags=["ratings"]
+)
+
+@router.post("/", response_model=RatingResponse)
+def create_rating(
+    rating_data: RatingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # 1. Sprawdź, czy użytkownik już ocenił ten film
+    existing_rating = db.query(Rating).filter(
+        Rating.user_id == current_user.id,
+        Rating.movie_id == rating_data.movie_id
+    ).first()
+
+    if existing_rating:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Już oceniłeś ten film! Możesz edytować swoją ocenę w panelu użytkownika."
+        )
+
+    # 2. Oblicz średnią ocenę użytkownika (z 5 aspektów)
+    aspects = [
+        rating_data.story, 
+        rating_data.acting, 
+        rating_data.visuals, 
+        rating_data.sound, 
+        rating_data.direction
+    ]
+    # Wyliczamy średnią tego konkretnego użytkownika (np. 4.2)
+    user_avg_score = round(sum(aspects) / len(aspects), 1)
+
+    # 3. Zapisz ocenę w tabeli 'ratings'
+    new_rating = Rating(
+        user_id=current_user.id,
+        movie_id=rating_data.movie_id,
+        rating=user_avg_score,
+        story=rating_data.story,
+        acting=rating_data.acting,
+        visuals=rating_data.visuals,
+        sound=rating_data.sound,
+        direction=rating_data.direction
+    )
+    
+    db.add(new_rating)
+    db.commit()
+    db.refresh(new_rating)
+
+    # --- NOWA CZĘŚĆ: AKTUALIZACJA GŁÓWNEGO RANKINGU FILMU ---
+    # 4. Pobierz wszystkie oceny dla tego filmu, żeby wyliczyć nową średnią globalną
+    all_ratings = db.query(Rating).filter(Rating.movie_id == rating_data.movie_id).all()
+    
+    if all_ratings:
+        # Sumujemy oceny wszystkich użytkowników
+        total_sum = sum([float(r.rating) for r in all_ratings])
+        # Dzielimy przez liczbę głosów
+        global_average = total_sum / len(all_ratings)
+        
+        # 5. Znajdź film i zaktualizuj jego kolumnę 'rating'
+        movie_to_update = db.query(Movie).filter(Movie.id == rating_data.movie_id).first()
+        if movie_to_update:
+            movie_to_update.rating = round(global_average, 1)
+            db.add(movie_to_update)
+            db.commit()
+            db.refresh(movie_to_update)
+            
+    return new_rating
+
+@router.get("/user/check/{movie_id}")
+def check_user_rating(
+    movie_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    rating = db.query(Rating).filter(
+        Rating.user_id == current_user.id,
+        Rating.movie_id == movie_id
+    ).first()
+    
+    if rating:
+        return {"rated": True, "score": rating.rating}
+    return {"rated": False}
 
 ==================================================
 PLIK: .\app\routers\recommendations.py
@@ -2955,6 +3135,30 @@ class FinalOnboardingSchema(BaseModel):
     weight_visuals: int = Field(..., ge=1, le=5, description="Waga dla Efektów (1-5)")
     weight_sound: int = Field(..., ge=1, le=5, description="Waga dla Dźwięku (1-5)")
     weight_direction: int = Field(..., ge=1, le=5, description="Waga dla Reżyserii (1-5)")
+
+==================================================
+PLIK: .\app\schemas\rating.py
+==================================================
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+class RatingCreate(BaseModel):
+    movie_id: int
+    # Walidacja wejścia: musi być int 1-5
+    story: int = Field(..., ge=1, le=5)
+    acting: int = Field(..., ge=1, le=5)
+    visuals: int = Field(..., ge=1, le=5)
+    sound: int = Field(..., ge=1, le=5)
+    direction: int = Field(..., ge=1, le=5)
+
+class RatingResponse(RatingCreate):
+    id: int
+    user_id: int
+    rating: float      # W modelu nazywa się to 'rating' (Numeric)
+    rated_at: datetime # W modelu nazywa się to 'rated_at'
+
+    class Config:
+        from_attributes = True
 
 ==================================================
 PLIK: .\app\schemas\user_schemas.py
@@ -5075,6 +5279,10 @@ PLIK: .\templates\movie.html
         .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        /* Styl gwiazdek */
+        .star-container span { transition: color 0.2s; }
+        .star-container span:hover { transform: scale(1.2); }
     </style>
 </head>
 <body class="text-gray-100 relative">
@@ -5118,6 +5326,69 @@ PLIK: .\templates\movie.html
                 <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
                     <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Obsada</h2>
                     <div id="castGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">Twoja Ocena</h2>
+                    
+                    <div id="ratingLoginPrompt" class="hidden text-gray-400 text-sm mb-4">
+                        <i class="ph ph-sign-in text-lg mr-1 align-middle"></i>
+                        <a href="#" id="ratingLoginLink" class="text-blue-400 font-bold hover:underline">Zaloguj się</a>, aby ocenić ten film.
+                    </div>
+
+                    <div id="ratingSuccess" class="hidden bg-green-900/40 text-green-300 p-4 rounded-lg border border-green-600 text-center">
+                        <p class="font-bold text-lg">Dziękujemy za ocenę!</p>
+                        <p class="text-sm mt-1">Twoja średnia: <span id="userScoreDisplay" class="text-xl text-white font-bold ml-1"></span>/5</p>
+                    </div>
+
+                    <form id="ratingForm" class="hidden space-y-5">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                            
+                            <div class="rating-group">
+                                <label class="block text-xs uppercase text-gray-400 font-bold mb-1">📖 Fabuła</label>
+                                <div class="flex gap-1 text-2xl text-gray-600 cursor-pointer star-container" data-category="story">
+                                    <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+                                </div>
+                                <input type="hidden" name="story" id="input-story">
+                            </div>
+
+                            <div class="rating-group">
+                                <label class="block text-xs uppercase text-gray-400 font-bold mb-1">🎭 Gra aktorska</label>
+                                <div class="flex gap-1 text-2xl text-gray-600 cursor-pointer star-container" data-category="acting">
+                                    <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+                                </div>
+                                <input type="hidden" name="acting" id="input-acting">
+                            </div>
+
+                            <div class="rating-group">
+                                <label class="block text-xs uppercase text-gray-400 font-bold mb-1">🎨 Wizualia</label>
+                                <div class="flex gap-1 text-2xl text-gray-600 cursor-pointer star-container" data-category="visuals">
+                                    <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+                                </div>
+                                <input type="hidden" name="visuals" id="input-visuals">
+                            </div>
+
+                            <div class="rating-group">
+                                <label class="block text-xs uppercase text-gray-400 font-bold mb-1">🎵 Dźwięk</label>
+                                <div class="flex gap-1 text-2xl text-gray-600 cursor-pointer star-container" data-category="sound">
+                                    <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+                                </div>
+                                <input type="hidden" name="sound" id="input-sound">
+                            </div>
+
+                            <div class="rating-group">
+                                <label class="block text-xs uppercase text-gray-400 font-bold mb-1">🎬 Klimat / Reżyseria</label>
+                                <div class="flex gap-1 text-2xl text-gray-600 cursor-pointer star-container" data-category="direction">
+                                    <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+                                </div>
+                                <input type="hidden" name="direction" id="input-direction">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg hover:shadow-blue-500/50">
+                            Zatwierdź Ocenę
+                        </button>
+                    </form>
                 </div>
 
                 <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
@@ -5169,61 +5440,54 @@ PLIK: .\templates\movie.html
     const token = localStorage.getItem('accessToken'); 
     let currentUser = null;
 
-    // --- POPRAWIONA FUNKCJA DEKODUJĄCA TOKEN ---
+    // --- PARSE TOKEN ---
     function parseJwt(token) {
         try {
-            if (!token || token.split('.').length !== 3) {
-                console.error("Błędny format tokena JWT");
-                return null;
-            }
-
+            if (!token || token.split('.').length !== 3) return null;
             const base64Url = token.split('.')[1];
             let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            
             const padding = base64.length % 4;
-            if (padding) {
-                base64 += '='.repeat(4 - padding);
-            }
-
-            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-
+            if (padding) base64 += '='.repeat(4 - padding);
+            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
             return JSON.parse(jsonPayload);
         } catch (e) {
-            console.error("Błąd dekodowania tokena:", e);
+            console.error("Błąd tokena:", e);
             return null;
         }
     }
 
-    // --- PRÓBA WYCIĄGNIĘCIA NAZWY UŻYTKOWNIKA ---
     if (token) {
         const payload = parseJwt(token);
-        if (payload) {
-            console.log("Zawartość tokena (Payload):", payload);
-            currentUser = payload.sub || payload.username || payload.name;
-        }
+        if (payload) currentUser = payload.sub || payload.username || payload.name;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         loadMovieDetails();
-        setupCommentForm(); 
+        setupCommentForm();
+        setupRatingSystem(); // <-- Inicjalizacja systemu ocen
     });
 
+    // --- AUTORYZACJA / LINKI LOGOWANIA ---
     function setupCommentForm() {
+        const currentPath = window.location.pathname + window.location.search;
+        const loginUrl = `/login?next=${encodeURIComponent(currentPath)}`;
+
         if (token) {
             document.getElementById('addCommentSection').classList.remove('hidden');
             document.getElementById('loginPrompt').classList.add('hidden');
+            document.getElementById('ratingLoginPrompt').classList.add('hidden');
         } else {
             document.getElementById('addCommentSection').classList.add('hidden');
             document.getElementById('loginPrompt').classList.remove('hidden');
-            
-            const currentPath = window.location.pathname + window.location.search;
-            const loginUrl = `/login?next=${encodeURIComponent(currentPath)}`;
             document.getElementById('loginLink').setAttribute('href', loginUrl);
+            
+            // Obsługa promptu dla ocen
+            document.getElementById('ratingLoginPrompt').classList.remove('hidden');
+            document.getElementById('ratingLoginLink').setAttribute('href', loginUrl);
         }
     }
 
+    // --- ŁADOWANIE DETALI FILMU ---
     async function loadMovieDetails() {
         const params = new URLSearchParams(window.location.search);
         const movieId = params.get('id');
@@ -5254,44 +5518,127 @@ PLIK: .\templates\movie.html
         document.getElementById('backdropImage').style.backgroundImage = `url('${backdropUrl}')`;
         if(data.poster_url) document.getElementById('posterImage').src = data.poster_url;
 
+        // Render Obsady
         const castGrid = document.getElementById('castGrid');
         if(data.extras.cast && data.extras.cast.length > 0) {
-            castGrid.innerHTML = ''; 
-            data.extras.cast.forEach(actor => {
-                const photo = actor.photo || "https://via.placeholder.com/100x150?text=No+Img";
-                castGrid.innerHTML += `
-                    <div class="flex items-center gap-3 bg-gray-700/50 p-2 rounded-lg border border-gray-600 hover:border-blue-500 transition">
-                        <img src="${photo}" class="w-10 h-10 rounded-full object-cover border border-gray-500">
-                        <div>
-                            <div class="text-sm font-bold text-white leading-tight">${actor.name}</div>
-                            <div class="text-xs text-gray-400">${actor.character}</div>
-                        </div>
+            castGrid.innerHTML = data.extras.cast.map(actor => `
+                <div class="flex items-center gap-3 bg-gray-700/50 p-2 rounded-lg border border-gray-600 hover:border-blue-500 transition">
+                    <img src="${actor.photo || 'https://via.placeholder.com/100x150?text=No+Img'}" class="w-10 h-10 rounded-full object-cover border border-gray-500">
+                    <div>
+                        <div class="text-sm font-bold text-white leading-tight">${actor.name}</div>
+                        <div class="text-xs text-gray-400">${actor.character}</div>
                     </div>
-                `;
-            });
+                </div>
+            `).join('');
         } else { castGrid.innerHTML = '<span class="text-gray-500 text-sm">Brak danych.</span>'; }
 
+        // Trailer & Images
         if(data.extras.trailer) {
             document.getElementById('trailerContainer').innerHTML = `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${data.extras.trailer}" title="Trailer" frameborder="0" allowfullscreen></iframe>`;
         }
         const imgGrid = document.getElementById('imagesGrid');
         if(data.extras.images && data.extras.images.length > 0) {
-             imgGrid.innerHTML = '';
-             data.extras.images.slice(0, 4).forEach(imgUrl => {
-                 imgGrid.innerHTML += `<img src="${imgUrl}" class="rounded-lg border border-gray-600 opacity-80 hover:opacity-100 transition cursor-pointer object-cover h-24 w-full">`;
-             });
+            imgGrid.innerHTML = data.extras.images.slice(0, 4).map(imgUrl => 
+                `<img src="${imgUrl}" class="rounded-lg border border-gray-600 opacity-80 hover:opacity-100 transition cursor-pointer object-cover h-24 w-full">`
+            ).join('');
         }
     }
 
-    // --- OBSŁUGA KOMENTARZY ---
+    // --- NOWY SYSTEM OCEN (ANFIS/ML) ---
+    async function setupRatingSystem() {
+        if (!token) return; // Jeśli niezalogowany, ukryliśmy form w setupCommentForm
 
+        const ratingForm = document.getElementById('ratingForm');
+        const movieId = new URLSearchParams(window.location.search).get('id');
+
+        // Sprawdź czy już oceniono
+        try {
+            const res = await fetch(`${API_URL}/ratings/user/check/${movieId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            
+            if(data.rated) {
+                showRatingSuccess(data.score); // 'score' albo 'rating' zależnie od backendu, tutaj użyjemy tego co zwróci API
+            } else {
+                ratingForm.classList.remove('hidden');
+            }
+        } catch(e) { console.error("Błąd sprawdzania oceny", e); }
+
+        // Obsługa gwiazdek
+        document.querySelectorAll('.star-container').forEach(container => {
+            const stars = container.querySelectorAll('span');
+            const category = container.dataset.category;
+            const input = document.getElementById(`input-${category}`);
+
+            stars.forEach(star => {
+                star.addEventListener('click', () => {
+                    const val = parseInt(star.dataset.val);
+                    input.value = val;
+                    // Kolorowanie
+                    stars.forEach(s => {
+                        if(parseInt(s.dataset.val) <= val) {
+                            s.classList.remove('text-gray-600');
+                            s.classList.add('text-yellow-400');
+                        } else {
+                            s.classList.add('text-gray-600');
+                            s.classList.remove('text-yellow-400');
+                        }
+                    });
+                });
+            });
+        });
+
+        // Wysyłanie formularza
+        ratingForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(ratingForm);
+            
+            const data = {
+                movie_id: parseInt(movieId),
+                story: parseInt(formData.get('story')),
+                acting: parseInt(formData.get('acting')),
+                visuals: parseInt(formData.get('visuals')),
+                sound: parseInt(formData.get('sound')),
+                direction: parseInt(formData.get('direction')),
+            };
+
+            if(Object.values(data).some(isNaN)) {
+                alert("Proszę ocenić wszystkie 5 kategorii!");
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/ratings/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(data)
+                });
+
+                if(res.ok) {
+                    const result = await res.json();
+                    // UWAGA: Sprawdzamy co zwraca backend. Zwykle zwraca pole 'rating'
+                    showRatingSuccess(result.rating || result.score);
+                } else {
+                    const err = await res.json();
+                    alert(err.detail || "Błąd zapisu oceny");
+                }
+            } catch(e) { alert("Błąd połączenia z serwerem"); }
+        });
+    }
+
+    function showRatingSuccess(score) {
+        document.getElementById('ratingForm').classList.add('hidden');
+        document.getElementById('ratingSuccess').classList.remove('hidden');
+        document.getElementById('userScoreDisplay').innerText = score ? score.toFixed(1) : "?";
+    }
+
+
+    // --- OBSŁUGA KOMENTARZY (BEZ ZMIAN) ---
     async function loadComments(movieId) {
         try {
             const res = await fetch(`${API_URL}/comments/movie/${movieId}`);
-            if (res.ok) {
-                const comments = await res.json();
-                renderComments(comments);
-            }
+            if (res.ok) renderComments(await res.json());
         } catch (e) { console.error("Błąd sieci", e); }
     }
 
@@ -5304,25 +5651,17 @@ PLIK: .\templates\movie.html
 
         container.innerHTML = comments.map(c => {
             const isOwner = currentUser && (c.username === currentUser);
-            
             const actions = isOwner ? `
                 <div class="flex gap-2 opacity-80 hover:opacity-100">
-                    <button onclick="startEditComment(${c.id}, this)" class="text-blue-400 hover:text-blue-300 transition px-2" title="Edytuj">
-                        <i class="ph ph-pencil-simple text-lg"></i>
-                    </button>
-                    <button onclick="deleteComment(${c.id})" class="text-red-400 hover:text-red-300 transition px-2" title="Usuń">
-                        <i class="ph ph-trash text-lg"></i>
-                    </button>
-                </div>
-            ` : '';
+                    <button onclick="startEditComment(${c.id}, this)" class="text-blue-400 hover:text-blue-300 transition px-2"><i class="ph ph-pencil-simple text-lg"></i></button>
+                    <button onclick="deleteComment(${c.id})" class="text-red-400 hover:text-red-300 transition px-2"><i class="ph ph-trash text-lg"></i></button>
+                </div>` : '';
 
             return `
             <div id="comment-${c.id}" class="bg-gray-700/30 p-4 rounded-lg border border-gray-700 hover:bg-gray-700/50 transition group">
                 <div class="flex justify-between items-start mb-2">
                     <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white uppercase">
-                            ${c.username.charAt(0)}
-                        </div>
+                        <div class="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white uppercase">${c.username.charAt(0)}</div>
                         <span class="font-bold text-blue-400 text-sm">${c.username}</span>
                     </div>
                     <div class="flex items-center gap-3">
@@ -5333,15 +5672,13 @@ PLIK: .\templates\movie.html
                 <div class="comment-body">
                     <p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${c.content}</p>
                 </div>
-            </div>
-        `}).join('');
+            </div>`;
+        }).join('');
     }
 
     async function postComment() {
         const content = document.getElementById('commentContent').value;
-        const params = new URLSearchParams(window.location.search);
-        const movieId = params.get('id');
-
+        const movieId = new URLSearchParams(window.location.search).get('id');
         if (!content.trim()) return alert("Wpisz treść komentarza!");
 
         try {
@@ -5350,28 +5687,19 @@ PLIK: .\templates\movie.html
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ content: content, movie_id: parseInt(movieId) })
             });
-
             if (res.ok) {
                 document.getElementById('commentContent').value = ''; 
                 loadComments(movieId); 
-            } else {
-                alert("Błąd. Spróbuj ponownie.");
-            }
+            } else alert("Błąd. Spróbuj ponownie.");
         } catch (e) { alert("Wystąpił błąd sieci."); }
     }
 
     async function deleteComment(commentId) {
         if(!confirm("Czy na pewno chcesz usunąć ten komentarz?")) return;
         try {
-            const res = await fetch(`${API_URL}/comments/${commentId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if(res.ok) {
-                document.getElementById(`comment-${commentId}`).remove();
-            } else {
-                alert("Nie udało się usunąć komentarza.");
-            }
+            const res = await fetch(`${API_URL}/comments/${commentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+            if(res.ok) document.getElementById(`comment-${commentId}`).remove();
+            else alert("Nie udało się usunąć komentarza.");
         } catch(e) { alert("Błąd sieci."); }
     }
 
@@ -5385,39 +5713,25 @@ PLIK: .\templates\movie.html
             <div class="flex justify-end gap-2">
                 <button onclick="cancelEdit(${commentId}, '${currentText.replace(/'/g, "\\'")}')" class="text-xs text-gray-400 hover:text-white px-2 py-1">Anuluj</button>
                 <button onclick="saveEdit(${commentId})" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Zapisz</button>
-            </div>
-        `;
-        
-        const actionsDiv = commentDiv.querySelector('.flex.gap-2.opacity-80');
-        if (actionsDiv) actionsDiv.classList.add('hidden');
+            </div>`;
     }
 
     function cancelEdit(commentId, originalText) {
         const commentDiv = document.getElementById(`comment-${commentId}`);
-        const bodyDiv = commentDiv.querySelector('.comment-body');
-        bodyDiv.innerHTML = `<p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${originalText}</p>`;
-        
-        const actionsDiv = commentDiv.querySelector('.flex.gap-2.hidden');
-        if (actionsDiv) actionsDiv.classList.remove('hidden');
+        commentDiv.querySelector('.comment-body').innerHTML = `<p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">${originalText}</p>`;
     }
 
     async function saveEdit(commentId) {
         const newContent = document.getElementById(`edit-input-${commentId}`).value;
         if(!newContent.trim()) return alert("Treść nie może być pusta");
-
         try {
             const res = await fetch(`${API_URL}/comments/${commentId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ content: newContent })
             });
-
-            if(res.ok) {
-                const params = new URLSearchParams(window.location.search);
-                loadComments(params.get('id')); 
-            } else {
-                alert("Błąd podczas edycji.");
-            }
+            if(res.ok) loadComments(new URLSearchParams(window.location.search).get('id'));
+            else alert("Błąd podczas edycji.");
         } catch(e) { alert("Błąd sieci."); }
     }
 </script>
