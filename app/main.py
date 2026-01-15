@@ -5,18 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 # --- IMPORTY ZALEŻNOŚCI ---
-# Od dziewczyn:
 from app.dependencies import get_current_admin
 
-# Baza danych i modele (Twoje - KLUCZOWE):
+# --- IMPORTY MODELI (Baza Danych) ---
 from app.database import Base, engine
-from app.models import user, comment, movie
+# Dodajemy 'rating' do importów, aby baza utworzyła tabelę 'ratings'
+from app.models import user, comment, movie, rating
 
 # --- IMPORTY ROUTERÓW ---
-# Łączymy routery Twoje (auth, admin, movies, comments) i dziewczyn (preferences, recommendations)
-from app.routers import auth, admin, preferences, movies, comments, recommendations
+# Dodajemy 'ratings' do listy routerów
+from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
 
-# Tworzenie tabel w bazie (musi być po importach modeli)
+# Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="System Rekomendacji Filmów")
@@ -41,12 +41,12 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(preferences.router)
 app.include_router(movies.router)
-app.include_router(comments.router)       # Twój router
-app.include_router(recommendations.router) # Router od dziewczyn
+app.include_router(comments.router)
+app.include_router(recommendations.router)
+app.include_router(ratings.router)  # <--- NOWOŚĆ: Router ocen
 
 # --- ENDPOINTY HTML (WIDOKI) ---
 
-# Strona główna - zostawiamy Twoją wersję HTML (lepsza dla użytkownika niż JSON)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -75,7 +75,6 @@ async def movie_detail_page(request: Request):
 async def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
-# --- NOWE WIDOKI OD DZIEWCZYN ---
 @app.get("/onboarding", response_class=HTMLResponse)
 async def preferences_page(request: Request):
     return templates.TemplateResponse("preferences.html", {"request": request})

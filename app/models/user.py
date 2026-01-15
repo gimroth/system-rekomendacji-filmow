@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -13,11 +13,9 @@ class User(Base):
     role = Column(String(20), default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relacje
+    # --- RELACJE ---
     ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
-    # To jest kluczowe dla komentarzy:
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
-    # Relacja do preferencji
     preferences = relationship("UserPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
@@ -26,7 +24,7 @@ class UserPreference(Base):
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
-    # Wagi (Constrainty 1-5) - to musi zostać dla algorytmu!
+    # Wagi (Constrainty 1-5)
     weight_story = Column(Integer, CheckConstraint('weight_story BETWEEN 1 AND 5'), nullable=False)
     weight_acting = Column(Integer, CheckConstraint('weight_acting BETWEEN 1 AND 5'), nullable=False)
     weight_visuals = Column(Integer, CheckConstraint('weight_visuals BETWEEN 1 AND 5'), nullable=False)
@@ -35,5 +33,4 @@ class UserPreference(Base):
 
     onboarding_completed = Column(Boolean, default=True)
     
-    # TO JEST NAJWAŻNIEJSZE - naprawa relacji (z Twojej wersji)
     user = relationship("User", back_populates="preferences")
