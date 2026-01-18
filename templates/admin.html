@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Panel Administratora 🛡️</title>
+    <title>Panel Administratora </title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -18,12 +18,15 @@
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         .page-input::-webkit-inner-spin-button, .page-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        /* Klasa blokująca przewijanie tła */
+        .no-scroll { overflow: hidden !important; }
     </style>
 </head>
 <body class="text-slate-200 p-4 md:p-8">
     <div class="max-w-7xl mx-auto">
         <div class="flex flex-col md:flex-row justify-between items-center mb-8 bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-xl">
-            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">Panel Admina 🛡️</h1>
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">Panel Admina </h1>
             <div class="flex flex-wrap gap-2 mt-4 md:mt-0">
                 <button onclick="switchTab('movies')" id="btn-movies" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Filmy</button>
                 <button onclick="switchTab('users')" id="btn-users" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Użytkownicy</button>
@@ -61,12 +64,12 @@
         </div>
 
         <div id="section-users" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-             <h2 class="text-xl font-bold text-yellow-400 mb-6">Zarządzanie Użytkownikami</h2>
-             <input type="text" id="userSearch" oninput="resetAndLoad('users')" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl mb-6 outline-none" placeholder="Szukaj po nazwie lub emailu...">
+             <h2 class="text-xl font-bold text-yellow-400 mb-6 font-bold text-2xl">Zarządzanie Użytkownikami</h2>
+             <input type="text" id="userSearch" oninput="resetAndLoad('users')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Szukaj po nazwie lub emailu...">
              <div class="overflow-x-auto">
                 <table class="w-full text-left">
                     <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
-                        <tr><th class="p-4">Użytkownik</th><th class="p-4">Rola</th><th class="p-4 text-right">Akcje</th></tr>
+                        <tr><th class="p-4 text-lg">Użytkownik</th><th class="p-4 text-lg">Rola</th><th class="p-4 text-right text-lg">Akcje</th></tr>
                     </thead>
                     <tbody id="userTable" class="divide-y divide-slate-700/50"></tbody>
                 </table>
@@ -75,12 +78,12 @@
         </div>
 
         <div id="section-comments" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-             <h2 class="text-xl font-bold text-purple-400 mb-6 font-bold">Moderacja Komentarzy</h2>
-             <input type="text" id="commentSearch" oninput="resetAndLoad('comments')" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl mb-6 outline-none" placeholder="Szukaj w treści lub autorach...">
+             <h2 class="text-xl font-bold text-purple-400 mb-6 font-bold text-2xl">Moderacja Komentarzy</h2>
+             <input type="text" id="commentSearch" oninput="resetAndLoad('comments')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Szukaj w treści lub autorach...">
              <div class="overflow-x-auto">
                 <table class="w-full text-left">
                     <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
-                        <tr><th class="p-4">Film</th><th class="p-4">Autor</th><th class="p-4">Treść</th><th class="p-4 text-right">Akcje</th></tr>
+                        <tr><th class="p-4 text-lg">Film</th><th class="p-4 text-lg">Autor</th><th class="p-4 text-lg">Treść</th><th class="p-4 text-right text-lg">Akcje</th></tr>
                     </thead>
                     <tbody id="commentTable" class="divide-y divide-slate-700/50"></tbody>
                 </table>
@@ -89,12 +92,12 @@
         </div>
 
         <div id="section-ratings" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-             <h2 class="text-xl font-bold text-pink-400 mb-6 font-bold">Logi Ocen</h2>
-             <input type="text" id="ratingSearch" oninput="resetAndLoad('ratings')" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl mb-6 outline-none" placeholder="Filtruj oceny...">
+             <h2 class="text-xl font-bold text-pink-400 mb-6 font-bold text-2xl">Logi Ocen</h2>
+             <input type="text" id="ratingSearch" oninput="resetAndLoad('ratings')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Filtruj oceny...">
              <div class="overflow-x-auto">
                 <table class="w-full text-left">
                     <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
-                        <tr><th class="p-4">Film</th><th class="p-4">Użytkownik</th><th class="p-4 text-center">Ocena</th><th class="p-4 text-right">Akcje</th></tr>
+                        <tr><th class="p-4 text-lg">Film</th><th class="p-4 text-lg">Użytkownik</th><th class="p-4 text-center text-lg">Ocena</th><th class="p-4 text-right text-lg">Akcje</th></tr>
                     </thead>
                     <tbody id="ratingTable" class="divide-y divide-slate-700/50"></tbody>
                 </table>
@@ -104,12 +107,13 @@
     </div>
 
     <div id="detailsModal" class="hidden fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-700 w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+        <div class="bg-slate-900 border border-slate-700 w-full max-w-6xl rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
             <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
-                <h3 id="modalTitle" class="text-xl font-bold text-white uppercase tracking-widest"></h3>
+                <h3 id="modalTitle" class="text-2xl font-bold text-white uppercase tracking-widest"></h3>
                 <button onclick="closeModal()" class="text-slate-400 hover:text-white text-3xl transition focus:outline-none">&times;</button>
             </div>
-            <div id="modalContent" class="p-6 overflow-y-auto custom-scroll space-y-8"></div>
+            <div id="modalContent" class="flex-1 overflow-hidden p-0">
+                </div>
         </div>
     </div>
 
@@ -187,15 +191,14 @@
         } catch(e) { console.error("Błąd ładowania:", e); }
     }
 
-    // --- RENDERY TABEL (Czcionki powiększone, zdjęcia większe) ---
-
+    // --- RENDERY TABEL ---
     function renderMovies(movies) {
         document.getElementById('movieTable').innerHTML = movies.map(m => `
             <tr class="hover:bg-slate-700/20 transition group">
                 <td class="p-4"><img src="${m.poster_url || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg shadow-md border border-slate-600"></td>
-                <td class="p-4 text-base font-bold text-white cursor-pointer hover:text-blue-400 transition" onclick="showActivity('movies', ${m.id}, '${m.title.replace(/'/g, "\\'")}')">${m.title}</td>
-                <td class="p-4 text-base text-slate-400 text-center">${m.year || '---'}</td>
-                <td class="p-4 text-base text-yellow-500 font-bold text-center">★ ${m.average_rating}</td>
+                <td class="p-4 text-xl font-bold text-white cursor-pointer hover:text-blue-400 transition" onclick="showActivity('movies', ${m.id}, '${m.title.replace(/'/g, "\\'")}')">${m.title}</td>
+                <td class="p-4 text-lg text-slate-400 text-center">${m.year || '---'}</td>
+                <td class="p-4 text-xl text-yellow-500 font-bold text-center">★ ${m.average_rating}</td>
                 <td class="p-4 text-right"><button onclick="deleteMain('movies', ${m.id})" class="text-red-500 hover:text-red-300 font-bold text-sm uppercase tracking-tighter">USUŃ</button></td>
             </tr>`).join('');
     }
@@ -203,10 +206,10 @@
     function renderUsers(users) {
         document.getElementById('userTable').innerHTML = users.map(u => `
             <tr class="hover:bg-slate-700/20 transition group">
-                <td class="p-6 text-base font-bold text-white cursor-pointer hover:text-yellow-400 transition" onclick="showActivity('users', ${u.id}, '${u.username}')">
-                    ${u.username} <br> <span class="text-xs text-slate-500 font-medium">${u.email}</span>
+                <td class="p-6 text-xl font-bold text-white cursor-pointer hover:text-yellow-400 transition" onclick="showActivity('users', ${u.id}, '${u.username}')">
+                    ${u.username} <br> <span class="text-base text-slate-500 font-medium">${u.email}</span>
                 </td>
-                <td class="p-6"><span class="px-3 py-1 rounded-md text-xs font-bold ${u.role === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}">${u.role.toUpperCase()}</span></td>
+                <td class="p-6 text-lg"><span class="px-3 py-1 rounded-md text-sm font-bold ${u.role === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}">${u.role.toUpperCase()}</span></td>
                 <td class="p-6 text-right">${u.role !== 'admin' ? `<button onclick="deleteMain('users', ${u.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button>` : ''}</td>
             </tr>`).join('');
     }
@@ -216,10 +219,10 @@
             <tr class="hover:bg-slate-700/20 transition group">
                 <td class="p-4 flex items-center gap-4">
                     <img src="${c.movie_poster || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg border border-slate-600">
-                    <span class="text-sm font-bold text-slate-400 uppercase truncate w-40">${c.movie_title}</span>
+                    <span class="text-lg font-bold text-slate-300 uppercase truncate w-48">${c.movie_title}</span>
                 </td>
-                <td class="p-4 text-base font-bold text-blue-400">${c.username}</td>
-                <td class="p-4 text-base italic text-slate-300">"${c.content}"</td>
+                <td class="p-4 text-xl font-bold text-blue-400">${c.username}</td>
+                <td class="p-4 text-xl italic text-slate-100">"${c.content}"</td>
                 <td class="p-4 text-right"><button onclick="deleteMain('comments', ${c.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button></td>
             </tr>`).join('');
     }
@@ -229,54 +232,99 @@
             <tr class="hover:bg-slate-700/20 transition group">
                 <td class="p-4 flex items-center gap-4">
                     <img src="${r.movie_poster || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg border border-slate-600">
-                    <span class="text-sm font-bold text-slate-400 uppercase truncate w-40">${r.movie_title}</span>
+                    <span class="text-lg font-bold text-slate-300 uppercase truncate w-48">${r.movie_title}</span>
                 </td>
-                <td class="p-4 text-base font-bold text-pink-400">${r.username}</td>
-                <td class="p-4 text-lg text-yellow-500 font-black text-center">★ ${r.rating}</td>
+                <td class="p-4 text-xl font-bold text-pink-400">${r.username}</td>
+                <td class="p-4 text-2xl text-yellow-500 font-black text-center">★ ${r.rating}</td>
                 <td class="p-4 text-right"><button onclick="deleteMain('ratings', ${r.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button></td>
             </tr>`).join('');
     }
 
-    // --- MODAL AKTIVITY ---
+    // --- MODAL ACTIVITY (Dwie niezależne kolumny + blokada tła) ---
     async function showActivity(type, id, name) {
         document.getElementById('modalTitle').innerText = name;
-        const res = await fetch(`${API}/${type}/${id}/activity`, { headers: getHeaders() });
-        const data = await res.json();
-        let html = '<div class="space-y-6">';
 
-        html += `<div><h4 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-700 pb-2">Komentarze</h4><div class="space-y-3">`;
-        html += data.comments.map(c => `
-            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex justify-between items-start">
-                <div class="flex gap-4">
-                    ${c.poster ? `<img src="${c.poster}" class="w-12 h-16 rounded-lg object-cover">` : ''}
-                    <div>
-                        <p class="text-sm font-extrabold text-indigo-400 uppercase">${c.user || c.movie}</p>
-                        <p class="text-base text-slate-200 mt-1 italic leading-relaxed">"${c.content}"</p>
-                    </div>
-                </div>
-                <button onclick="deleteInModal('comments', ${c.id}, '${type}', ${id}, '${name}')" class="text-red-500 hover:text-red-300 font-bold text-xs">USUŃ</button>
-            </div>`).join('') || '<p class="text-slate-600 italic text-sm text-center py-4">Brak komentarzy.</p>';
-        html += `</div></div>`;
+        // Blokada scrolla tła
+        document.body.classList.add('no-scroll');
 
-        html += `<div><h4 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-700 pb-2 mt-8">Oceny</h4><div class="space-y-3">`;
-        html += data.ratings.map(r => `
-            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex justify-between items-center">
-                <div class="flex items-center gap-4">
-                    ${r.poster ? `<img src="${r.poster}" class="w-12 h-16 rounded-lg object-cover">` : ''}
-                    <div>
-                        <p class="text-sm font-extrabold text-indigo-400 uppercase">${r.user || r.movie}</p>
-                        <p class="text-yellow-500 font-black text-xl">★ ${r.score}</p>
-                    </div>
-                </div>
-                <button onclick="deleteInModal('ratings', ${r.id}, '${type}', ${id}, '${name}')" class="text-red-500 hover:text-red-300 font-bold text-xs">USUŃ</button>
-            </div>`).join('') || '<p class="text-slate-600 italic text-sm text-center py-4">Brak ocen.</p>';
-        html += `</div></div>`;
-
-        document.getElementById('modalContent').innerHTML = html;
+        document.getElementById('modalContent').innerHTML = `
+            <div class="flex items-center justify-center h-full text-blue-400 font-bold animate-pulse text-2xl">
+                Pobieranie aktywności...
+            </div>`;
         document.getElementById('detailsModal').classList.remove('hidden');
+
+        try {
+            const res = await fetch(`${API}/${type}/${id}/activity`, { headers: getHeaders() });
+            const data = await res.json();
+
+            let html = `
+            <div class="flex flex-col md:flex-row h-full overflow-hidden">
+
+                <div class="flex-1 flex flex-col border-r border-slate-700 min-w-0">
+                    <div class="sticky top-0 bg-slate-800 z-10 p-4 border-b border-slate-700 flex justify-between items-center shadow-md">
+                        <h4 class="text-lg font-black text-indigo-400 uppercase tracking-widest">Komentarze</h4>
+                        <span class="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded-full text-sm font-bold">${data.comments.length}</span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-6 bg-slate-900/50">
+                        ${data.comments.map(c => `
+                            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex justify-between items-center group hover:border-indigo-500/50 transition shadow-lg">
+                                <div class="flex gap-5 min-w-0 items-center">
+                                    ${c.poster ? `<img src="${c.poster}" class="w-16 h-24 rounded-lg object-cover flex-shrink-0 shadow-lg border border-slate-600">` : ''}
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-black text-indigo-300 uppercase truncate mb-2 tracking-tighter">${c.user || c.movie}</p>
+                                        <p class="text-lg text-slate-100 italic leading-relaxed break-words font-medium">"${c.content}"</p>
+                                    </div>
+                                </div>
+                                <button onclick="deleteInModal('comments', ${c.id}, '${type}', ${id}, '${name}')"
+                                        class="text-red-500 hover:bg-red-500/20 p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        `).join('') || '<div class="flex flex-col items-center justify-center h-full text-slate-600 italic py-20 text-lg">Brak komentarzy</div>'}
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col min-w-0">
+                    <div class="sticky top-0 bg-slate-800 z-10 p-4 border-b border-slate-700 flex justify-between items-center shadow-md">
+                        <h4 class="text-lg font-black text-yellow-500 uppercase tracking-widest">Oceny</h4>
+                        <span class="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm font-bold">${data.ratings.length}</span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-6 bg-slate-900/50">
+                        ${data.ratings.map(r => `
+                            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex justify-between items-center group hover:border-yellow-500/50 transition shadow-lg">
+                                <div class="flex items-center gap-5 min-w-0">
+                                    ${r.poster ? `<img src="${r.poster}" class="w-16 h-24 rounded-lg object-cover flex-shrink-0 shadow-lg border border-slate-600">` : ''}
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-black text-yellow-500 uppercase truncate mb-2 tracking-tighter">${r.user || r.movie}</p>
+                                        <p class="text-3xl font-black text-white drop-shadow-md">★ ${r.score}</p>
+                                    </div>
+                                </div>
+                                <button onclick="deleteInModal('ratings', ${r.id}, '${type}', ${id}, '${name}')"
+                                        class="text-red-500 hover:bg-red-500/20 p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        `).join('') || '<div class="flex flex-col items-center justify-center h-full text-slate-600 italic py-20 text-lg">Brak ocen</div>'}
+                    </div>
+                </div>
+            </div>`;
+
+            document.getElementById('modalContent').innerHTML = html;
+
+        } catch (e) {
+            document.getElementById('modalContent').innerHTML = `<p class="text-red-500 p-10 text-center">Błąd ładowania danych: ${e.message}</p>`;
+        }
     }
 
-    // --- OPERACJE ---
+    function closeModal() {
+        document.getElementById('detailsModal').classList.add('hidden');
+        // Przywrócenie scrolla tła
+        document.body.classList.remove('no-scroll');
+    }
+
+    // --- OPERACJE TMDB ---
     async function searchTMDB() {
         const q = document.getElementById('tmdbQuery').value;
         if(!q) return;
@@ -285,15 +333,12 @@
         const data = await res.json();
 
         document.getElementById('tmdbResults').innerHTML = data.map(m => {
-            // Logika przycisku zależna od pola is_added
             const buttonHtml = m.is_added
                 ? `<button disabled class="mt-auto bg-slate-700 text-slate-500 border border-slate-600 py-1.5 rounded-lg text-[10px] font-black cursor-not-allowed uppercase">W BAZIE ✓</button>`
                 : `<button onclick="addMovie(${m.tmdb_id})" class="mt-auto bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 py-1.5 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition uppercase">DODAJ</button>`;
 
-            const opacityClass = m.is_added ? 'opacity-60' : 'opacity-100';
-
             return `
-                <div class="movie-card bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center flex flex-col shadow-xl ${opacityClass}">
+                <div class="movie-card bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center flex flex-col shadow-xl ${m.is_added ? 'opacity-60' : 'opacity-100'}">
                     <img src="${m.poster_url || 'https://via.placeholder.com/200x300'}" class="w-full h-44 object-cover rounded-xl mb-3 shadow-inner">
                     <p class="text-[11px] font-bold truncate mb-3 text-slate-300 px-1">${m.title}</p>
                     ${buttonHtml}
@@ -329,7 +374,6 @@
         resetAndLoad(tab);
     }
 
-    function closeModal() { document.getElementById('detailsModal').classList.add('hidden'); }
     function logout() { localStorage.clear(); window.location.href = "/login"; }
 
     document.addEventListener('DOMContentLoaded', () => {
