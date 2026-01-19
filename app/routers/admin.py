@@ -4,6 +4,8 @@ from sqlalchemy import func, desc, or_
 from typing import List, Optional
 import requests
 import os
+import re
+
 
 from app.database import get_db
 from app.dependencies import get_current_admin
@@ -244,3 +246,121 @@ def get_movie_activity(movie_id: int, db: Session = Depends(get_db), admin: User
         "comments": [{"id": x.id, "content": x.content, "user": x.user.username} for x in comments],
         "ratings": [{"id": x.id, "score": x.rating, "user": x.user.username} for x in ratings]
     }
+
+
+# --- 6. ML DASHBOARD ---
+@router.get("/ml/metrics")
+def get_ml_metrics(admin: User = Depends(get_current_admin)):
+    """
+    Zwraca metryki modeli ML (ANFIS vs MLP) z pliku comparison_report.txt
+    """
+    try:
+        # Znajdź najnowszy folder comparison
+        dirs = [d for d in os.listdir('.') if d.startswith('comparison_anfis_mlp')]
+
+        if not dirs:
+            raise FileNotFoundError("Brak folderu comparison")
+
+        latest_dir = max(dirs)  # Najnowszy (sortowanie alfabetyczne)
+
+        # Czytaj comparison_report.txt
+        report_path = os.path.join(latest_dir, 'comparison_report.txt')
+
+        if not os.path.exists(report_path):
+            raise FileNotFoundError(f"Brak pliku {report_path}")
+
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Parsuj MAE (gwiazdki)
+        mae_match = re.search(r"MAE \(gwiazdki\)\s+([\d.]+)⭐\s+([\d.]+)⭐\s+([\d.]+)⭐", content)
+        if not mae_match:
+            raise ValueError("Nie znaleziono MAE w raporcie")
+
+        anfis_mae = float(mae_match.group(1))
+        mlp_mae = float(mae_match.group(2))
+        diff_mae = float(mae_match.group(3))
+
+        # Parsuj RMSE (gwiazdki)
+        rmse_match = re.search(r"RMSE \(gwiazdki\)\s+([\d.]+)⭐\s+([\d.]+)⭐\s+([\d.]+)⭐", content)
+        if not rmse_match:
+            raise ValueError("Nie znaleziono RMSE w raporcie")
+
+        anfis_rmse = float(rmse_match.group(1))
+        mlp_rmse = float(rmse_match.group(2))
+        diff_rmse = float(rmse_match.group(3))
+
+        # Parsuj improvement %
+        improvement_match = re.search(r"MLP jest o ([\d.]+)% dokładniejszy", content)
+        improvement_pct = float(improvement_match.group(1)) if improvement_match else 0.0
+
+        # Parsuj datę
+        date_match = re.search(r"Data:\s+([\d-]+\s+[\d:]+)", content)
+        comparison_date = date_match.group(1) if date_match else "Unknown"
+
+        # Określ jakość modeli
+        def get_quality(mae):
+            if mae < 0.3:
+                return "EXCELLENT"
+            elif mae < 0.4:
+                return "GOOD"
+            elif mae < 0.5:
+                return "AVERAGE"
+            else:
+                return "POOR"
+
+        # Sprawdź czy model jest załadowany
+        model_loaded = os.path.exists("app/ml/models/anfis_latest.pkl")
+
+        return {
+            "status": "success",
+            "anfis": {
+                "mae": round(anfis_mae, 2),
+                "rmse": round(anfis_rmse, 2),
+                "quality": get_quality(anfis_mae)
+            },
+            "mlp": {
+                "mae": round(mlp_mae, 2),
+                "rmse": round(mlp_rmse, 2),
+                "quality": get_quality(mlp_mae)
+            },
+            "comparison": {
+                "winner": "MLP" if mlp_mae < anfis_mae else "ANFIS",
+                "improvement_pct": round(improvement_pct, 1),
+                "difference_mae": round(diff_mae, 2),
+                "difference_rmse": round(diff_rmse, 2),
+                "date": comparison_date
+            },
+            "model": {
+                "loaded": model_loaded,
+                "path": "anfis_latest.pkl"
+            }
+        }
+
+    except FileNotFoundError as e:
+        # Brak pliku - zwróć fallback
+        return {
+            "status": "fallback",
+            "error": str(e),
+            "anfis": {"mae": 0.35, "rmse": 0.43, "quality": "GOOD"},
+            "mlp": {"mae": 0.22, "rmse": 0.29, "quality": "EXCELLENT"},
+            "comparison": {
+                "winner": "MLP",
+                "improvement_pct": 37.0,
+                "difference_mae": 0.13,
+                "difference_rmse": 0.14,
+                "date": "Unknown"
+            },
+            "model": {"loaded": False, "path": "N/A"}
+        }
+
+    except Exception as e:
+        # Inny błąd
+        return {
+            "status": "error",
+            "error": str(e),
+            "anfis": {"mae": 0.0, "rmse": 0.0, "quality": "N/A"},
+            "mlp": {"mae": 0.0, "rmse": 0.0, "quality": "N/A"},
+            "comparison": {"winner": "N/A", "improvement_pct": 0.0},
+            "model": {"loaded": False}
+        }
