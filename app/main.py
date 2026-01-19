@@ -16,6 +16,7 @@ from app.ml.anfis_model import load_anfis_model
 
 # --- IMPORTY ROUTERÓW ---
 from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
+from app.routers import homepage
 
 # Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
@@ -57,6 +58,7 @@ app.include_router(movies.router)
 app.include_router(comments.router)
 app.include_router(recommendations.router)
 app.include_router(ratings.router)
+app.include_router(homepage.router)
 
 # --- WIDOKI HTML ---
 @app.get("/", response_class=HTMLResponse)

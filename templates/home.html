@@ -7,17 +7,74 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1f2937;
+            min-height: 100vh;
+        }
+
+        .movie-row {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            padding: 0.5rem 0;
+        }
+
+        .movie-row::-webkit-scrollbar {
+            display: none;
+        }
+
+        .movie-card {
+            min-width: 200px;
+            max-width: 200px;
+            flex-shrink: 0;
+        }
+
+        .scroll-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.3s;
+            padding: 1rem;
+        }
+
+        .category-container:hover .scroll-btn {
+            opacity: 1;
+        }
+
+        .scroll-btn-left {
+            left: -1rem;
+            background: linear-gradient(to right, rgba(31, 41, 55, 0.95), transparent);
+            padding-left: 0;
+            padding-right: 3rem;
+        }
+
+        .scroll-btn-right {
+            right: -1rem;
+            background: linear-gradient(to left, rgba(31, 41, 55, 0.95), transparent);
+            padding-right: 0;
+            padding-left: 3rem;
+        }
+
+        .category-title {
+            margin-bottom: 1.5rem;
+            padding-left: 0.5rem;
+            position: relative;
+            z-index: 5;
+        }
     </style>
 </head>
 <body class="text-gray-100 p-4 md:p-8">
 
     {% include "navbar.html" %}
 
+    <!-- Hero/Search Section -->
     <div class="max-w-7xl mx-auto mb-8 bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
-        <h2 class="text-xl font-bold text-gray-200 mb-4">Znajdź film dla siebie</h2>
+        <h2 class="text-xl font-bold text-gray-200 mb-4">Odkryj filmy dla siebie</h2>
         <div class="flex flex-col md:flex-row gap-4">
             <input type="text" id="searchInput" placeholder="Wpisz tytuł..."
                    class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400">
@@ -34,22 +91,71 @@
         </div>
     </div>
 
-    <div id="moviesGrid" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-        </div>
+    <!-- Loading State -->
+    <div id="loading" class="max-w-7xl mx-auto text-center py-20">
+        <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-400 font-medium">Ładowanie filmów...</p>
+    </div>
 
-    <div class="max-w-7xl mx-auto mt-8 flex justify-center items-center gap-4 pb-8">
-        <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 border border-gray-600 text-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-600 transition">Poprzednia</button>
-        <span id="pageInfo" class="text-gray-400 font-mono">Strona 1</span>
-        <button id="nextBtn" onclick="changePage(1)" class="px-4 py-2 bg-blue-600 border border-blue-500 text-white rounded-lg hover:bg-blue-700 transition">Następna</button>
+    <!-- Categories Container -->
+    <div id="categoriesContainer" class="max-w-7xl mx-auto space-y-8 hidden">
+    </div>
+
+    <!-- Search Results (when searching) -->
+    <div id="searchResults" class="max-w-7xl mx-auto hidden">
+        <h2 class="text-2xl font-bold text-white mb-6">Wyniki wyszukiwania</h2>
+        <div id="searchGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        </div>
+        <div class="mt-8 flex justify-center items-center gap-4 pb-8">
+            <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 border border-gray-600 text-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-600 transition">Poprzednia</button>
+            <span id="pageInfo" class="text-gray-400 font-mono">Strona 1</span>
+            <button id="nextBtn" onclick="changePage(1)" class="px-4 py-2 bg-blue-600 border border-blue-500 text-white rounded-lg hover:bg-blue-700 transition">Następna</button>
+        </div>
     </div>
 
 <script>
     const API_URL = "http://127.0.0.1:8000";
     let currentPage = 1;
+    let currentUserId = null;
+
+    function parseJwt(token) {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            return null;
+        }
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Check if admin
+        const userData = JSON.parse(localStorage.getItem('user'));
+        if (userData && userData.role === 'admin') {
+            window.location.href = '/admin-panel';
+            return;
+        }
+
+        // Get user ID - NAJPIERW Z localStorage.user
+        if (userData && userData.id) {
+            currentUserId = parseInt(userData.id, 10);
+        } else {
+            // Fallback: spróbuj z JWT
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                const payload = parseJwt(token);
+                const possibleId = payload?.user_id || payload?.id;
+                currentUserId = possibleId ? parseInt(possibleId, 10) : null;
+            }
+        }
+
+        console.log('Current User ID:', currentUserId);
+
         loadGenres();
-        loadMovies();
+        loadCategories();
     });
 
     async function loadGenres() {
@@ -63,69 +169,205 @@
                 opt.innerText = g;
                 select.appendChild(opt);
             });
-        } catch (e) { console.error("Błąd gatunków", e); }
+        } catch (e) {
+            console.error("Błąd gatunków", e);
+        }
     }
 
-    async function searchMovies() { currentPage = 1; loadMovies(); }
-    async function changePage(d) { currentPage += d; loadMovies(); }
+    async function loadCategories() {
+        const loading = document.getElementById('loading');
+        const container = document.getElementById('categoriesContainer');
 
-    async function loadMovies() {
+        loading.classList.remove('hidden');
+        container.classList.add('hidden');
+
+        try {
+            const categories = [];
+            const userParam = currentUserId ? `user_id=${currentUserId}&` : '';
+
+            // 1. Najnowsze
+            const latestRes = await fetch(`${API_URL}/homepage/latest?${userParam}limit=20`);
+            const latest = await latestRes.json();
+            categories.push(latest);
+
+            // 2-6. Top by aspect
+            const aspects = ['story', 'acting', 'visuals', 'sound', 'direction'];
+            for (const aspect of aspects) {
+                const res = await fetch(`${API_URL}/homepage/top-by-aspect?aspect=${aspect}&${userParam}limit=20`);
+                const data = await res.json();
+                categories.push(data);
+            }
+
+            loading.classList.add('hidden');
+            container.classList.remove('hidden');
+
+            renderCategories(categories);
+
+        } catch(e) {
+            console.error('Błąd ładowania kategorii:', e);
+            loading.innerHTML = `
+                <p class="text-red-400 font-bold">Błąd ładowania filmów</p>
+                <p class="text-sm text-gray-400 mt-2">${e.message}</p>
+                <button onclick="loadCategories()" class="mt-4 px-6 py-2 bg-blue-600 rounded-lg">
+                    Spróbuj ponownie
+                </button>
+            `;
+        }
+    }
+
+    function renderCategories(categories) {
+        const container = document.getElementById('categoriesContainer');
+        container.innerHTML = '';
+
+        categories.forEach((cat, idx) => {
+            if (cat.movies.length === 0) return;
+
+            const categoryDiv = document.createElement('div');
+            categoryDiv.className = 'category-container relative';
+            categoryDiv.innerHTML = `
+                <h3 class="category-title text-2xl font-bold text-white">${cat.category}</h3>
+
+                <button onclick="scrollRow('row-${idx}', -1)"
+                        class="scroll-btn scroll-btn-left h-full flex items-center justify-center text-white hover:text-blue-400 transition">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+
+                <div id="row-${idx}" class="movie-row">
+                    ${cat.movies.map(m => createMovieCard(m)).join('')}
+                </div>
+
+                <button onclick="scrollRow('row-${idx}', 1)"
+                        class="scroll-btn scroll-btn-right h-full flex items-center justify-center text-white hover:text-blue-400 transition">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            `;
+
+            container.appendChild(categoryDiv);
+
+            // Dodaj infinite scroll
+            const row = document.getElementById(`row-${idx}`);
+            const originalContent = row.innerHTML;
+            row.innerHTML = originalContent + originalContent;
+
+            setupInfiniteScroll(row);
+        });
+    }
+
+    function setupInfiniteScroll(row) {
+        row.addEventListener('scroll', () => {
+            const scrollLeft = row.scrollLeft;
+            const scrollWidth = row.scrollWidth;
+            const clientWidth = row.clientWidth;
+
+            if (scrollLeft + clientWidth >= scrollWidth - 10) {
+                row.scrollLeft = 10;
+            }
+
+            if (scrollLeft <= 10) {
+                row.scrollLeft = (scrollWidth / 2) - clientWidth + 10;
+            }
+        });
+    }
+
+    function createMovieCard(movie) {
+        const poster = movie.poster_url || "https://via.placeholder.com/300x450?text=No+Poster";
+        const genres = movie.genres ? movie.genres.slice(0, 2).map(g =>
+            `<span class="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">${g}</span>`
+        ).join('') : '';
+
+        return `
+            <div class="movie-card bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group"
+                 onclick="window.location.href='/movie?id=${movie.id}'">
+                <div class="relative aspect-[2/3]">
+                    <img src="${poster}"
+                         class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition"
+                         alt="${movie.title}">
+                    <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
+                        ${movie.avg_aspect ? movie.avg_aspect.toFixed(1) : movie.year || 'N/A'}
+                    </div>
+                </div>
+                <div class="p-3">
+                    <h3 class="font-bold text-white text-xs line-clamp-2 group-hover:text-blue-400 transition mb-1">
+                        ${movie.title}
+                    </h3>
+                    ${genres ? `<div class="flex gap-1 flex-wrap mt-2">${genres}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function scrollRow(rowId, direction) {
+        const row = document.getElementById(rowId);
+        const scrollAmount = 600; // Pixels to scroll
+        row.scrollBy({
+            left: direction * scrollAmount,
+            behavior: 'smooth'
+        });
+    }
+
+    // Search functionality
+    async function searchMovies() {
+        currentPage = 1;
+        loadSearchResults();
+    }
+
+    async function changePage(d) {
+        currentPage += d;
+        loadSearchResults();
+    }
+
+    async function loadSearchResults() {
         const query = document.getElementById('searchInput').value;
         const genre = document.getElementById('genreSelect').value;
-        const grid = document.getElementById('moviesGrid');
 
-        grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400 animate-pulse">Ładowanie filmów...</div>';
+        // If no search query and "Wszystkie" genre, show categories
+        if (!query && genre === "Wszystkie") {
+            document.getElementById('searchResults').classList.add('hidden');
+            document.getElementById('categoriesContainer').classList.remove('hidden');
+            return;
+        }
 
-        let url = `${API_URL}/movies/?page=${currentPage}&limit=10`;
-        if(query) url += `&search=${encodeURIComponent(query)}`;
-        if(genre !== "Wszystkie") url += `&genre=${encodeURIComponent(genre)}`;
+        // Hide categories, show search results
+        document.getElementById('categoriesContainer').classList.add('hidden');
+        document.getElementById('searchResults').classList.remove('hidden');
+
+        const grid = document.getElementById('searchGrid');
+        grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400 animate-pulse">Szukam...</div>';
+
+        let url = `${API_URL}/movies/?page=${currentPage}&limit=20`;
+        if (query) url += `&search=${encodeURIComponent(query)}`;
+        if (genre !== "Wszystkie") url += `&genre=${encodeURIComponent(genre)}`;
+
+        // Exclude rated movies
+        if (currentUserId) url += `&user_id=${currentUserId}`;
 
         try {
             const res = await fetch(url);
             const data = await res.json();
 
             grid.innerHTML = "";
-            if(data.data.length === 0) {
+            if (data.data.length === 0) {
                 grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-500">Brak wyników.</div>';
                 return;
             }
 
             data.data.forEach(m => {
-                const poster = m.poster_url || "https://via.placeholder.com/300x450?text=No+Poster";
-                grid.innerHTML += `
-                    <div onclick="window.location.href='/movie?id=${m.id}'"
-                         class="bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group">
-                        <div class="relative aspect-[2/3]">
-                            <img src="${poster}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition">
-                            <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
-                                ★ ${m.rating}
-                            </div>
-                        </div>
-                        <div class="p-4">
-                            <h3 class="font-bold text-white text-sm line-clamp-1 group-hover:text-blue-400 transition">${m.title}</h3>
-                            <p class="text-xs text-gray-400 mt-1">${m.year || "N/A"}</p>
-                        </div>
-                    </div>
-                `;
+                grid.innerHTML += createMovieCard(m);
             });
 
             document.getElementById('pageInfo').innerText = `Strona ${data.page} z ${data.pages}`;
             document.getElementById('prevBtn').disabled = data.page <= 1;
             document.getElementById('nextBtn').disabled = data.page >= data.pages;
 
-        } catch(e) { console.error(e); }
+        } catch(e) {
+            console.error(e);
+            grid.innerHTML = '<div class="col-span-full text-center py-10 text-red-400">Błąd wyszukiwania</div>';
+        }
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('accessToken');
-    // Zakładamy, że dekodujesz token lub przechowujesz obiekt 'user'
-    const userData = JSON.parse(localStorage.getItem('user'));
-
-    if (userData && userData.role === 'admin') {
-        // Jeśli admin próbuje wejść na stronę usera, wyrzuć go do panelu
-        window.location.href = '/admin-panel';
-    }
-});
 </script>
 </body>
 </html>
