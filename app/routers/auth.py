@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserPreference
 from app.utils.hashing import verify_password, hash_password
 from app.utils.jwt_handler import create_access_token
 import traceback
@@ -56,19 +56,19 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Błąd rejestracji")
 
 # --- LOGOWANIE ---
-@router.post("/login", response_model=Token)
+@router.post("/login")
 def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     print(f"\n--- LOGOWANIE: {user_credentials.username} ---")
-    
+
     try:
         user = db.query(User).filter(User.username == user_credentials.username).first()
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
-        # Obsługa starego i nowego hasła (zabezpieczenie)
+        # Obsługa starego i nowego hasła
         db_pass = getattr(user, 'password_hash', None) or getattr(user, 'password', None)
-        
+
         if not verify_password(user_credentials.password, db_pass):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Nieprawidłowe dane")
 
@@ -76,15 +76,24 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
         access_token = create_access_token(data={
             "user_id": user.id,
             "sub": user.username,
-            "role": user.role 
+            "role": user.role
         })
-        
-        # Odpowiedź zgodna z modelem Token
+
+        # Sprawdź onboarding
+        pref = db.query(UserPreference).filter(
+            UserPreference.user_id == user.id
+        ).first()
+
+        # Obsługa NULL i False
+        has_completed_onboarding = bool(pref.onboarding_completed) if pref else False
+
+        # Odpowiedź (BEZ response_model!)
         return {
-            "access_token": access_token, 
+            "access_token": access_token,
             "token_type": "bearer",
             "user_role": user.role,
-            "user_id": user.id
+            "user_id": user.id,
+            "has_completed_onboarding": has_completed_onboarding  # DODANE!
         }
 
     except HTTPException as he:

@@ -132,10 +132,27 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('accessToken');
+        const userData = localStorage.getItem('user');
+        const onboardingCompleted = localStorage.getItem('onboarding_completed');
+
         // Check if admin
-        const userData = JSON.parse(localStorage.getItem('user'));
-        if (userData && userData.role === 'admin') {
-            window.location.href = '/admin-panel';
+        if (userData) {
+            try {
+            const user = JSON.parse(userData);
+            if (user.role === 'admin') {
+                window.location.href = '/admin-panel';
+                return;
+            }
+            } catch (e) {
+            console.error('Błąd:', e);
+            }
+        }
+
+        // GUARD: Zalogowany bez preferencji -> onboarding
+        if (token && onboardingCompleted !== 'true') {
+            alert('Najpierw uzupełnij swoje preferencje filmowe!');
+            window.location.href = '/onboarding';
             return;
         }
 
@@ -154,8 +171,12 @@
 
         console.log('Current User ID:', currentUserId);
 
-        loadGenres();
-        loadCategories();
+        if (userData && JSON.parse(userData).id) {
+            currentUserId = parseInt(JSON.parse(userData).id, 10);
+        }
+
+    loadGenres();
+    loadCategories();
     });
 
     async function loadGenres() {

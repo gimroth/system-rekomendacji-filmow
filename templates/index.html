@@ -116,10 +116,10 @@
 
             if (isLoginMode) {
                 // --- TU JEST POŁĄCZENIE TWOJEGO KODU Z KODEM NADII ---
-                
+
                 // 1. Zapisujemy token (standardowo)
                 localStorage.setItem('accessToken', data.access_token);
-                
+
                 // 2. Tworzymy obiekt użytkownika, którego Nadia potrzebuje
                 // Backend zwraca "user_role", a Nadia chce mieć obiekt "user" z polem "role"
                 const userObject = {
@@ -127,17 +127,24 @@
                     username: username, // Bierzemy z formularza, bo backend tego nie zwrócił w JSON
                     role: data.user_role // To jest najważniejsze dla Nadii!
                 };
-                
+
                 // Zapisujemy obiekt user, żeby inne podstrony (Nadii) działały
                 localStorage.setItem('user', JSON.stringify(userObject));
+
+                const onboardingStatus = data.has_completed_onboarding === true ? 'true' : 'false';
+                localStorage.setItem('onboarding_completed', onboardingStatus);
 
                 // 3. Logika przekierowania (Nadii)
                 if (userObject.role === 'admin') {
                     window.location.href = '/admin-panel'; // Logika Nadii
                 } else {
-                    const params = new URLSearchParams(window.location.search);
-                    const nextUrl = params.get('next');
-                    window.location.href = nextUrl || '/home';
+                    if (data.has_completed_onboarding !== true) {
+                        window.location.href = '/onboarding';
+                    } else {
+                        const params = new URLSearchParams(window.location.search);
+                        const nextUrl = params.get('next');
+                        window.location.href = nextUrl || '/home';
+                    }
                 }
             } else {
                 displayMessage("Konto utworzone! Możesz się teraz zalogować.", false);
@@ -154,23 +161,28 @@
 
     // Strażnik wejścia (Logika Nadii + poprawki bezpieczeństwa)
     document.addEventListener('DOMContentLoaded', () => {
-        const token = localStorage.getItem('accessToken');
-        const userData = localStorage.getItem('user');
+    const token = localStorage.getItem('accessToken');
+    const userData = localStorage.getItem('user');
 
-        if (token && userData) {
-            try {
-                const user = JSON.parse(userData);
-                // Sprawdzamy rolę tak jak chciała Nadia
-                if (user.role === 'admin') {
-                    window.location.href = '/admin-panel';
+    if (token && userData) {
+        try {
+            const user = JSON.parse(userData);
+            if (user.role === 'admin') {
+                window.location.href = '/admin-panel';
+            } else {
+                // Sprawdź localStorage
+                const onboardingCompleted = localStorage.getItem('onboarding_completed');
+                if (onboardingCompleted !== 'true') {
+                    window.location.href = '/onboarding';
                 } else {
                     window.location.href = '/home';
                 }
-            } catch (e) {
-                localStorage.clear();
             }
+        } catch (e) {
+            localStorage.clear();
         }
-    });
+    }
+});
 </script>
 </body>
 </html>

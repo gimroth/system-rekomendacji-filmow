@@ -67,8 +67,37 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('accessToken');
+        const userData = localStorage.getItem('user');
+        const onboardingCompleted = localStorage.getItem('onboarding_completed');
+
+        // Nie zalogowany -> login
+        if (!token) {
+            alert('Musisz się zalogować, aby zobaczyć rekomendacje!');
+            window.location.href = '/login?next=/my-recommendations';
+            return;
+        }
+
+        // Admin -> panel
+        if (userData) {
+            try {
+                const user = JSON.parse(userData);
+                if (user.role === 'admin') {
+                    window.location.href = '/admin-panel';
+                    return;
+                }
+            } catch (e) {}
+        }
+
+        // Bez preferencji -> onboarding
+        if (onboardingCompleted !== 'true') {
+            alert('Najpierw uzupełnij swoje preferencje filmowe!');
+            window.location.href = '/onboarding';
+            return;
+        }
+
         initRecommendations();
-    });
+});
 
     // FUNKCJA ODŚWIEŻANIA
     async function refreshRecommendations() {

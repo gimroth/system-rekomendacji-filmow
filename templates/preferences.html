@@ -304,6 +304,7 @@
                 body: JSON.stringify(formData)
             });
             displayMessage(data.message || 'Preferencje zapisano pomyślnie!', 'success');
+            localStorage.setItem('onboarding_completed', 'true');
             setTimeout(() => { window.location.href = '/my-recommendations'; }, CONFIG.REDIRECT_DELAY_MS);
         } catch (error) {
             displayMessage(error.message, 'error');
@@ -316,14 +317,35 @@
     document.addEventListener('DOMContentLoaded', loadGenres);
 
     document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('accessToken');
-    // Zakładamy, że dekodujesz token lub przechowujesz obiekt 'user'
-    const userData = JSON.parse(localStorage.getItem('user'));
+        const token = localStorage.getItem('accessToken');
+        const userData = localStorage.getItem('user');
+        const onboardingCompleted = localStorage.getItem('onboarding_completed');
 
-    if (userData && userData.role === 'admin') {
-        // Jeśli admin próbuje wejść na stronę usera, wyrzuć go do panelu
-        window.location.href = '/admin-panel';
-    }
+        // Nie zalogowany -> login
+        if (!token) {
+            window.location.href = '/login?next=/onboarding';
+            return;
+        }
+
+        // Admin -> panel
+        if (userData) {
+            try {
+                const user = JSON.parse(userData);
+                if (user.role === 'admin') {
+                    window.location.href = '/admin-panel';
+                    return;
+                }
+            } catch (e) {}
+        }
+
+        // Już wypełnił -> home
+        if (onboardingCompleted === 'true') {
+            window.location.href = '/home';
+            return;
+        }
+
+        // OK - ładuj gatunki
+        loadGenres();
 });
 </script>
 </body>
