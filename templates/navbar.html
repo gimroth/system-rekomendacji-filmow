@@ -16,19 +16,41 @@
         </div>
 </nav>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
 <script>
     function updateAuthUI() {
-        const token = localStorage.getItem('accessToken');
+        const token = localStorage.getItem('accessToken'); // Lub 'access_token' zależnie jak zapisujesz
         const authSection = document.getElementById('auth-section');
+        
+        // Próba pobrania nicku z localStorage (opcjonalne, dla lepszego wyglądu)
+        let username = "Mój Profil";
+        try {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                const userObj = JSON.parse(userStr);
+                if (userObj.username) username = userObj.username;
+            }
+        } catch(e) { console.log(e); }
+
         if (!authSection) return;
 
         if (token) {
+            // --- WIDOK DLA ZALOGOWANEGO ---
             authSection.innerHTML = `
-                <button onclick="logout()" class="text-red-400 hover:text-red-300 text-sm font-semibold transition border border-red-900/50 px-3 py-1 rounded bg-red-900/10">
+                <a href="/profile" class="flex items-center gap-2 text-gray-300 hover:text-blue-400 text-sm font-semibold transition mr-2 group">
+                    <div class="w-8 h-8 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center group-hover:border-blue-500 transition">
+                        <i class="fas fa-user text-xs"></i>
+                    </div>
+                    <span class="hidden sm:inline">${username}</span>
+                </a>
+                
+                <button onclick="logout()" class="text-red-400 hover:text-red-300 text-sm font-semibold transition border border-red-900/50 px-3 py-1 rounded bg-red-900/10 hover:bg-red-900/30">
                     Wyloguj
                 </button>
             `;
         } else {
+            // --- WIDOK DLA NIEZALOGOWANEGO ---
             authSection.innerHTML = `
                 <a href="/login" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2 px-4 rounded-lg transition shadow-lg shadow-blue-900/50">
                     Zaloguj
@@ -38,8 +60,12 @@
     }
 
     function logout() {
+        // Czyścimy wszystko co związane z sesją
         localStorage.removeItem('accessToken');
+        localStorage.removeItem('access_token'); // Dla pewności oba klucze
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        
         window.location.href = '/login';
     }
 
