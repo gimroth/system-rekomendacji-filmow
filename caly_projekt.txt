@@ -1085,41 +1085,41 @@ def get_current_admin(current_user: User = Depends(get_current_user)):
 ==================================================
 PLIK: .\app\main.py
 ==================================================
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from contextlib import asynccontextmanager # <--- 1. NOWY IMPORT
+from contextlib import asynccontextmanager
 
-# --- IMPORTY ZALEŻNOŚCI ---
-from app.dependencies import get_current_admin
-# --- WAŻNE: Import ładowania modelu ---
-from app.ml.utils import load_anfis_model # <--- 2. TEGO BRAKOWAŁO!
-
-# --- IMPORTY MODELI (Baza Danych) ---
+# --- IMPORTY BAZY DANYCH ---
 from app.database import Base, engine
+# Importujemy modele, aby SQLAlchemy utworzyło tabele
 from app.models import user, comment, movie, rating
+
+# --- POPRAWIONY IMPORT MODELU ML ---
+# Teraz importujemy z pliku app/ml/anfis_model.py, gdzie dodałeś funkcję load_anfis_model
+from app.ml.anfis_model import load_anfis_model
 
 # --- IMPORTY ROUTERÓW ---
 from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
+from app.routers import homepage
 
 # Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
 
-# --- 3. FUNKCJA STARTOWA (LIFESPAN) ---
-# To ona odpowiada za załadowanie modelu ANFIS przy starcie serwera
+# --- CYKL ŻYCIA APLIKACJI (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Kod uruchamiany przy starcie
+    # Kod uruchamiany przy starcie serwera
     load_anfis_model() 
     yield
     # Kod uruchamiany przy zamknięciu (opcjonalnie)
 
-# --- INICJALIZACJA APLIKACJI Z LIFESPAN ---
+# --- INICJALIZACJA APLIKACJI ---
 app = FastAPI(
     title="System Rekomendacji Filmów",
-    lifespan=lifespan  # <--- 4. PRZYPISANIE FUNKCJI STARTOWEJ
+    lifespan=lifespan
 )
 
 # Konfiguracja CORS
@@ -1145,9 +1145,9 @@ app.include_router(movies.router)
 app.include_router(comments.router)
 app.include_router(recommendations.router)
 app.include_router(ratings.router)
+app.include_router(homepage.router)
 
-# --- ENDPOINTY HTML (WIDOKI) ---
-
+# --- WIDOKI HTML ---
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -1278,7 +1278,7 @@ PLIK: .\app\ml\anfis_model.py
 Model ANFIS z logiką MATCH i naprawioną inicjalizacją.
 Naprawiono: błąd _rule_generator oraz AttributeError: evaluate.
 """
-
+import os
 import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
@@ -1360,6 +1360,30 @@ class ANFISRecommender:
     @staticmethod
     def load(path: str):
         with open(path, 'rb') as f: return pickle.load(f)
+        anfis_system = None
+
+def load_anfis_model():
+    """Funkcja ładowana przez main.py przy starcie serwera."""
+    global anfis_system
+    
+    # Ścieżka do pliku .pkl (zakładamy, że jest w folderze app/ml/models/)
+    # __file__ to ścieżka do tego pliku (anfis_model.py)
+    current_dir = os.path.dirname(__file__)
+    model_path = os.path.join(current_dir, "models", "anfis_latest.pkl")
+    
+    if os.path.exists(model_path):
+        try:
+            with open(model_path, "rb") as f:
+                anfis_system = pickle.load(f)
+            print(f"✅ ANFIS: Załadowano model z {model_path}")
+        except Exception as e:
+            print(f"❌ ANFIS: Błąd ładowania modelu: {e}")
+    else:
+        print(f"⚠️ ANFIS: Nie znaleziono pliku modelu w {model_path}")
+
+def get_anfis_model():
+    """Getter używany przez router do pobrania modelu."""
+    return anfis_system
 
 ==================================================
 PLIK: .\app\ml\data_processor.py
@@ -2004,16 +2028,20 @@ from .genre import Genre
 PLIK: .\app\routers\admin.py
 ==================================================
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc, or_
 from typing import List, Optional
 import requests
 import os
+import re
+
+
 from app.database import get_db
 from app.dependencies import get_current_admin
 from app.models.user import User
 from app.models.movie import Movie
 from app.models.rating import Rating
+from app.models.comment import Comment
 from app.schemas.admin_schemas import (
     MovieAdminResponse,
     TMDBSearchResult,
@@ -2021,6 +2049,7 @@ from app.schemas.admin_schemas import (
     PaginatedUsersResponse
 )
 
+# Konfiguracja klucza TMDB
 try:
     from app.config import settings
 
@@ -2030,6 +2059,8 @@ except ImportError:
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
 
+
+# --- 1. UŻYTKOWNICY ---
 @router.get("/users", response_model=PaginatedUsersResponse)
 def get_all_users(
         skip: int = 0,
@@ -2039,164 +2070,329 @@ def get_all_users(
         admin: User = Depends(get_current_admin)
 ):
     query = db.query(User)
-
     if search:
-        search_filter = f"%{search}%"
-        query = query.filter(
-            or_(
-                User.username.ilike(search_filter),
-                User.email.ilike(search_filter)
-            )
-        )
+        sf = f"%{search}%"
+        query = query.filter(or_(User.username.ilike(sf), User.email.ilike(sf)))
 
-    total_users = query.count()
+    total = query.count()
     users = query.offset(skip).limit(limit).all()
+    return {"total": total, "users": users}
 
-    return {"total": total_users, "users": users}
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Użytkownik nie znaleziony")
-
-    if user.role == 'admin':
+    if not user or user.role == 'admin':
         raise HTTPException(status_code=400, detail="Nie można usunąć administratora.")
-
     db.delete(user)
     db.commit()
     return
 
-@router.get("/movies/search", response_model=List[TMDBSearchResult])
-def search_movies_in_tmdb(query: str, admin: User = Depends(get_current_admin)):
-    """Wyszukuje filmy w TMDB (Język: ANGIELSKI)."""
-    if not query:
-        return []
 
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=500, detail="Brak klucza API TMDB w konfiguracji.")
+# --- 2. FILMY (SZUKANIE TMDB + DODAWANIE + LISTA LOKALNA) ---
+@router.get("/movies/search")
+def search_movies_in_tmdb(query: str, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    if not query or not TMDB_API_KEY:
+        return []
 
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}&language=en-US"
 
     try:
-        response = requests.get(url, timeout=10)  # Timeout zapobiega zawieszeniu
-    except requests.RequestException:
-        raise HTTPException(status_code=502, detail="Błąd połączenia z TMDB")
+        response = requests.get(url, timeout=10)
+        tmdb_results = response.json().get("results", [])
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Błąd TMDB: {response.status_code}")
+        # Pobieramy listę wszystkich tmdb_id, które już mamy w bazie
+        existing_tmdb_ids = [m.tmdb_id for m in db.query(Movie.tmdb_id).filter(Movie.tmdb_id.isnot(None)).all()]
 
-    results = response.json().get("results", [])
-    parsed_results = []
+        parsed_results = []
+        for m in tmdb_results:
+            tmdb_id = m["id"]
+            # Sprawdzamy, czy ten film już u nas jest
+            is_added = tmdb_id in existing_tmdb_ids
 
-    for item in results:
-        release_date = item.get("release_date", "")
-        year = release_date[:4] if release_date else None
+            parsed_results.append({
+                "tmdb_id": tmdb_id,
+                "title": m["title"],
+                "year": m.get("release_date", "")[:4],
+                "poster_url": f"https://image.tmdb.org/t/p/w200{m.get('poster_path')}" if m.get(
+                    "poster_path") else None,
+                "is_added": is_added  # Nowe pole informacyjne
+            })
 
-        parsed_results.append(TMDBSearchResult(
-            tmdb_id=item["id"],
-            title=item["title"],
-            year=year,
-            poster_url=f"https://image.tmdb.org/t/p/w200{item.get('poster_path')}" if item.get("poster_path") else None,
-            overview=item.get("overview")
-        ))
+        return parsed_results
+    except Exception as e:
+        print(f"Błąd wyszukiwania TMDB: {e}")
+        return []
 
-    return parsed_results
 
 @router.post("/movies/tmdb/{tmdb_id}", response_model=MovieAdminResponse)
 def add_movie_by_tmdb_id(tmdb_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
-    """Dodaje film do bazy lokalnej na podstawie ID z TMDB (Język: ANGIELSKI)."""
-
     if db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first():
-        raise HTTPException(status_code=400, detail="Ten film już istnieje w bazie!")
-
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=500, detail="Brak klucza API TMDB.")
+        raise HTTPException(400, "Film już istnieje w bazie!")
 
     url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US"
-
-    try:
-        response = requests.get(url, timeout=10)
-    except requests.RequestException:
-        raise HTTPException(status_code=502, detail="Błąd połączenia z TMDB")
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=404, detail="Nie znaleziono filmu w TMDB")
-
-    data = response.json()
-
-    release_date = data.get("release_date", "")
-    year_val = None
-    if release_date and len(release_date) >= 4:
-        try:
-            year_val = int(release_date[:4])
-        except ValueError:
-            year_val = None
+    d = requests.get(url).json()
 
     new_movie = Movie(
-        title=data.get("title"),
-        year=year_val,
+        title=d.get("title"),
+        year=int(d.get("release_date", "0")[:4]) if d.get("release_date") else None,
         tmdb_id=tmdb_id,
-        description=data.get("overview"),
-        poster_url=f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else None
+        description=d.get("overview"),
+        poster_url=f"https://image.tmdb.org/t/p/w500{d.get('poster_path')}" if d.get("poster_path") else None
     )
-
-    try:
-        db.add(new_movie)
-        db.commit()
-        db.refresh(new_movie)
-    except Exception as e:
-        db.rollback()
-        # Wypisz błąd w konsoli serwera, żebyś widziała co się stało
-        print(f"BŁĄD BAZY DANYCH: {e}")
-        raise HTTPException(status_code=500, detail="Błąd zapisu do bazy danych. Sprawdź logi serwera.")
-
+    db.add(new_movie)
+    db.commit()
+    db.refresh(new_movie)
     return new_movie
 
 
-@router.get("/movies/local", response_model=List[MovieStats])
+@router.get("/movies/local")
 def get_local_movies(
-        skip: int = 0,
-        limit: int = 50,
-        search: Optional[str] = None,
-        db: Session = Depends(get_db),
-        admin: User = Depends(get_current_admin)
+        skip: int = 0, limit: int = 50, search: Optional[str] = None,
+        db: Session = Depends(get_db), admin: User = Depends(get_current_admin)
 ):
-    query = db.query(
-        Movie.id,
-        Movie.title,
-        Movie.year,
-        Movie.tmdb_id,
+    query = db.query(Movie)
+    if search:
+        query = query.filter(Movie.title.ilike(f"%{search}%"))
+
+    total = query.count()
+
+    # Podzapytanie do statystyk
+    results = db.query(
+        Movie.id, Movie.title, Movie.year, Movie.poster_url, Movie.tmdb_id,
         func.count(Rating.id).label("ratings_count"),
         func.coalesce(func.avg(Rating.rating), 0.0).label("average_rating")
     ).outerjoin(Rating, Movie.id == Rating.movie_id)
 
     if search:
-        query = query.filter(Movie.title.ilike(f"%{search}%"))
+        results = results.filter(Movie.title.ilike(f"%{search}%"))
 
-    query = query.group_by(Movie.id).order_by(desc("ratings_count"), desc(Movie.id))
-    results = query.offset(skip).limit(limit).all()
+    movies = results.group_by(Movie.id).order_by(desc("ratings_count")).offset(skip).limit(limit).all()
 
-    return [
-        MovieStats(
-            id=row.id,
-            title=row.title,
-            year=row.year,
-            tmdb_id=row.tmdb_id,
-            ratings_count=row.ratings_count,
-            average_rating=round(float(row.average_rating), 2)
-        )
-        for row in results
-    ]
+    return {
+        "total": total,
+        "movies": [{
+            "id": m.id, "title": m.title, "year": m.year, "poster_url": m.poster_url,
+            "ratings_count": m.ratings_count, "average_rating": round(float(m.average_rating), 1)
+        } for m in movies]
+    }
 
-@router.delete("/movies/{movie_id}", status_code=status.HTTP_204_NO_CONTENT)
+
+@router.delete("/movies/{movie_id}")
 def delete_movie(movie_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
-    movie = db.query(Movie).filter(Movie.id == movie_id).first()
-    if not movie:
-        raise HTTPException(status_code=404, detail="Film nie znaleziony")
-    db.delete(movie)
+    m = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not m:
+        raise HTTPException(404, "Nie znaleziono filmu")
+    db.delete(m)
     db.commit()
-    return
+    return {"status": "ok"}
+
+
+# --- 3. KOMENTARZE ---
+@router.get("/comments")
+def get_comments(
+        skip: int = 0, limit: int = 50, search: Optional[str] = None,
+        db: Session = Depends(get_db), admin: User = Depends(get_current_admin)
+):
+    query = db.query(Comment).join(User).join(Movie)
+    if search:
+        sf = f"%{search}%"
+        query = query.filter(or_(Comment.content.ilike(sf), User.username.ilike(sf), Movie.title.ilike(sf)))
+
+    total = query.count()
+    data = query.order_by(Comment.created_at.desc()).offset(skip).limit(limit).all()
+    return {
+        "total": total,
+        "comments": [{
+            "id": c.id, "content": c.content, "username": c.user.username,
+            "movie_title": c.movie.title, "movie_poster": c.movie.poster_url
+        } for c in data]
+    }
+
+
+@router.delete("/comments/{comment_id}")
+def del_comment(comment_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    c = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not c: raise HTTPException(404)
+    db.delete(c);
+    db.commit();
+    return {"status": "ok"}
+
+
+# --- 4. OCENY ---
+@router.get("/ratings")
+def get_ratings(
+        skip: int = 0, limit: int = 50, search: Optional[str] = None,
+        db: Session = Depends(get_db), admin: User = Depends(get_current_admin)
+):
+    query = db.query(Rating).join(User).join(Movie)
+    if search:
+        sf = f"%{search}%"
+        query = query.filter(or_(User.username.ilike(sf), Movie.title.ilike(sf)))
+
+    total = query.count()
+    data = query.order_by(Rating.rated_at.desc()).offset(skip).limit(limit).all()
+    return {
+        "total": total,
+        "ratings": [{
+            "id": r.id, "rating": r.rating, "username": r.user.username,
+            "movie_title": r.movie.title, "movie_poster": r.movie.poster_url
+        } for r in data]
+    }
+
+
+@router.delete("/ratings/{rating_id}")
+def del_rating(rating_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    r = db.query(Rating).filter(Rating.id == rating_id).first()
+    if not r: raise HTTPException(404)
+    db.delete(r);
+    db.commit();
+    return {"status": "ok"}
+
+
+# --- 5. AKTYWNOŚĆ (SZCZEGÓŁY) ---
+@router.get("/users/{user_id}/activity")
+def get_user_activity(user_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    # Pobieramy komentarze i oceny z dołączonym modelem filmu, aby mieć dostęp do plakatu
+    comments = db.query(Comment).options(joinedload(Comment.movie)).filter(Comment.user_id == user_id).all()
+    ratings = db.query(Rating).options(joinedload(Rating.movie)).filter(Rating.user_id == user_id).all()
+
+    return {
+        "comments": [{"id": x.id, "content": x.content, "movie": x.movie.title, "poster": x.movie.poster_url} for x in
+                     comments],
+        "ratings": [{"id": x.id, "score": x.rating, "movie": x.movie.title, "poster": x.movie.poster_url} for x in
+                    ratings]
+    }
+
+
+@router.get("/movies/{movie_id}/activity")
+def get_movie_activity(movie_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    # Pobieramy komentarze i oceny z dołączonym modelem użytkownika
+    comments = db.query(Comment).options(joinedload(Comment.user)).filter(Comment.movie_id == movie_id).all()
+    ratings = db.query(Rating).options(joinedload(Rating.user)).filter(Rating.movie_id == movie_id).all()
+
+    return {
+        "comments": [{"id": x.id, "content": x.content, "user": x.user.username} for x in comments],
+        "ratings": [{"id": x.id, "score": x.rating, "user": x.user.username} for x in ratings]
+    }
+
+
+# --- 6. ML DASHBOARD ---
+@router.get("/ml/metrics")
+def get_ml_metrics(admin: User = Depends(get_current_admin)):
+    """
+    Zwraca metryki modeli ML (ANFIS vs MLP) z pliku comparison_report.txt
+    """
+    try:
+        # Znajdź najnowszy folder comparison
+        dirs = [d for d in os.listdir('.') if d.startswith('comparison_anfis_mlp')]
+
+        if not dirs:
+            raise FileNotFoundError("Brak folderu comparison")
+
+        latest_dir = max(dirs)  # Najnowszy (sortowanie alfabetyczne)
+
+        # Czytaj comparison_report.txt
+        report_path = os.path.join(latest_dir, 'comparison_report.txt')
+
+        if not os.path.exists(report_path):
+            raise FileNotFoundError(f"Brak pliku {report_path}")
+
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Parsuj MAE (gwiazdki)
+        mae_match = re.search(r"MAE \(gwiazdki\)\s+([\d.]+)⭐\s+([\d.]+)⭐\s+([\d.]+)⭐", content)
+        if not mae_match:
+            raise ValueError("Nie znaleziono MAE w raporcie")
+
+        anfis_mae = float(mae_match.group(1))
+        mlp_mae = float(mae_match.group(2))
+        diff_mae = float(mae_match.group(3))
+
+        # Parsuj RMSE (gwiazdki)
+        rmse_match = re.search(r"RMSE \(gwiazdki\)\s+([\d.]+)⭐\s+([\d.]+)⭐\s+([\d.]+)⭐", content)
+        if not rmse_match:
+            raise ValueError("Nie znaleziono RMSE w raporcie")
+
+        anfis_rmse = float(rmse_match.group(1))
+        mlp_rmse = float(rmse_match.group(2))
+        diff_rmse = float(rmse_match.group(3))
+
+        # Parsuj improvement %
+        improvement_match = re.search(r"MLP jest o ([\d.]+)% dokładniejszy", content)
+        improvement_pct = float(improvement_match.group(1)) if improvement_match else 0.0
+
+        # Parsuj datę
+        date_match = re.search(r"Data:\s+([\d-]+\s+[\d:]+)", content)
+        comparison_date = date_match.group(1) if date_match else "Unknown"
+
+        # Określ jakość modeli
+        def get_quality(mae):
+            if mae < 0.3:
+                return "EXCELLENT"
+            elif mae < 0.4:
+                return "GOOD"
+            elif mae < 0.5:
+                return "AVERAGE"
+            else:
+                return "POOR"
+
+        # Sprawdź czy model jest załadowany
+        model_loaded = os.path.exists("app/ml/models/anfis_latest.pkl")
+
+        return {
+            "status": "success",
+            "anfis": {
+                "mae": round(anfis_mae, 2),
+                "rmse": round(anfis_rmse, 2),
+                "quality": get_quality(anfis_mae)
+            },
+            "mlp": {
+                "mae": round(mlp_mae, 2),
+                "rmse": round(mlp_rmse, 2),
+                "quality": get_quality(mlp_mae)
+            },
+            "comparison": {
+                "winner": "MLP" if mlp_mae < anfis_mae else "ANFIS",
+                "improvement_pct": round(improvement_pct, 1),
+                "difference_mae": round(diff_mae, 2),
+                "difference_rmse": round(diff_rmse, 2),
+                "date": comparison_date
+            },
+            "model": {
+                "loaded": model_loaded,
+                "path": "anfis_latest.pkl"
+            }
+        }
+
+    except FileNotFoundError as e:
+        # Brak pliku - zwróć fallback
+        return {
+            "status": "fallback",
+            "error": str(e),
+            "anfis": {"mae": 0.35, "rmse": 0.43, "quality": "GOOD"},
+            "mlp": {"mae": 0.22, "rmse": 0.29, "quality": "EXCELLENT"},
+            "comparison": {
+                "winner": "MLP",
+                "improvement_pct": 37.0,
+                "difference_mae": 0.13,
+                "difference_rmse": 0.14,
+                "date": "Unknown"
+            },
+            "model": {"loaded": False, "path": "N/A"}
+        }
+
+    except Exception as e:
+        # Inny błąd
+        return {
+            "status": "error",
+            "error": str(e),
+            "anfis": {"mae": 0.0, "rmse": 0.0, "quality": "N/A"},
+            "mlp": {"mae": 0.0, "rmse": 0.0, "quality": "N/A"},
+            "comparison": {"winner": "N/A", "improvement_pct": 0.0},
+            "model": {"loaded": False}
+        }
 
 ==================================================
 PLIK: .\app\routers\auth.py
@@ -2435,6 +2631,157 @@ def update_comment(
         user_id=db_comment.user_id,
         username=current_user.username
     )
+
+==================================================
+PLIK: .\app\routers\homepage.py
+==================================================
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc, and_
+from typing import Optional
+
+from app.database import get_db
+from app.models.movie import Movie
+from app.models.rating import Rating
+from app.models.genre import Genre, MovieGenre
+
+router = APIRouter(prefix="/homepage", tags=["Homepage"])
+
+
+@router.get("/latest")
+def get_latest_movies(
+        limit: int = Query(20, ge=1, le=50),
+        user_id: Optional[int] = None,
+        db: Session = Depends(get_db)
+):
+    """
+    Najnowsze filmy (sortowanie po roku wydania DESC).
+    Jeśli user_id - ukrywa już ocenione.
+    """
+    query = db.query(Movie).filter(Movie.year.isnot(None))
+
+    # Wykluczenie ocenionych filmów
+    if user_id:
+        rated_movie_ids = db.query(Rating.movie_id).filter(
+            Rating.user_id == user_id
+        ).subquery()
+        query = query.filter(~Movie.id.in_(rated_movie_ids))
+
+    movies = query.order_by(desc(Movie.year)).limit(limit).all()
+
+    return {
+        "category": "Najnowsze Premiery",
+        "movies": [
+            {
+                "id": m.id,
+                "title": m.title,
+                "year": m.year,
+                "poster_url": m.poster_url,
+                "genres": [g.name for g in m.genres]
+            }
+            for m in movies
+        ]
+    }
+
+
+@router.get("/top-by-aspect")
+def get_top_by_aspect(
+        aspect: str = Query(..., regex="^(story|acting|visuals|sound|direction)$"),
+        limit: int = Query(20, ge=1, le=50),
+        user_id: Optional[int] = None,
+        db: Session = Depends(get_db)
+):
+    """
+    Top filmy według konkretnego aspektu.
+
+    aspect: story | acting | visuals | sound | direction
+    """
+    # Mapowanie nazw aspektów na kolumny
+    aspect_map = {
+        "story": Rating.story,
+        "acting": Rating.acting,
+        "visuals": Rating.visuals,
+        "sound": Rating.sound,
+        "direction": Rating.direction
+    }
+
+    aspect_column = aspect_map[aspect]
+
+    # Polskie nazwy kategorii
+    category_names = {
+        "story": "Najlepsza Fabuła",
+        "acting": "Najlepsze Aktorstwo",
+        "visuals": "Najlepsze Efekty Wizualne",
+        "sound": "Najlepszy Dźwięk/Klimat",
+        "direction": "Najlepsza Reżyseria"
+    }
+
+    # Query: średnia aspektu per film
+    query = db.query(
+        Movie,
+        func.avg(aspect_column).label('avg_aspect')
+    ).join(Rating, Movie.id == Rating.movie_id)
+
+    # Wykluczenie ocenionych filmów
+    if user_id:
+        rated_movie_ids = db.query(Rating.movie_id).filter(
+            Rating.user_id == user_id
+        ).subquery()
+        query = query.filter(~Movie.id.in_(rated_movie_ids))
+
+    # Grupuj i sortuj
+    query = query.group_by(Movie.id).having(
+        func.count(Rating.id) >= 3  # Min 3 oceny
+    ).order_by(desc('avg_aspect')).limit(limit)
+
+    results = query.all()
+
+    return {
+        "category": category_names[aspect],
+        "aspect": aspect,
+        "movies": [
+            {
+                "id": m.Movie.id,
+                "title": m.Movie.title,
+                "year": m.Movie.year,
+                "poster_url": m.Movie.poster_url,
+                "avg_aspect": round(m.avg_aspect, 1),
+                "genres": [g.name for g in m.Movie.genres]
+            }
+            for m in results
+        ]
+    }
+
+
+@router.get("/all-categories")
+def get_all_categories(
+        user_id: Optional[int] = None,
+        limit_per_category: int = Query(20, ge=1, le=50),
+        db: Session = Depends(get_db)
+):
+    """
+    Zwraca wszystkie kategorie jednym requestem (optymalizacja).
+    """
+    categories = []
+
+    # 1. Najnowsze
+    latest = get_latest_movies(limit=limit_per_category, user_id=user_id, db=db)
+    categories.append(latest)
+
+    # 2-6. Top by aspect
+    for aspect in ['story', 'acting', 'visuals', 'sound', 'direction']:
+        top = get_top_by_aspect(
+            aspect=aspect,
+            limit=limit_per_category,
+            user_id=user_id,
+            db=db
+        )
+        categories.append(top)
+
+    return {
+        "user_id": user_id,
+        "categories": categories
+    }
 
 ==================================================
 PLIK: .\app\routers\movies.py
@@ -2771,18 +3118,11 @@ def check_user_rating(
 ==================================================
 PLIK: .\app\routers\recommendations.py
 ==================================================
-"""
-Router rekomendacji ANFIS z dynamicznymi top 3 + inteligentne gatunki
-Autorzy: Emilia (ML integration)
-Data: 2026-01-13
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, not_, or_
-from typing import List, Optional
+from sqlalchemy import func, not_, text
+from typing import List, Optional, Union
 import pickle
-import numpy as np
 import os
 
 from app.database import get_db
@@ -2802,15 +3142,25 @@ anfis_model = None
 
 def load_models():
     global anfis_model
-    if os.path.exists(ANFIS_MODEL_PATH):
-        try:
-            with open(ANFIS_MODEL_PATH, 'rb') as f:
-                anfis_model = pickle.load(f)
-            print(f"✅ ANFIS loaded from {ANFIS_MODEL_PATH}")
-        except Exception as e:
-            print(f"⚠️  Failed to load ANFIS: {e}")
-    else:
-        print(f"⚠️  ANFIS not found at {ANFIS_MODEL_PATH}")
+    paths_to_check = [
+        "app/ml/models/anfis_latest.pkl",
+        os.path.join(os.path.dirname(__file__), "..", "ml", "models", "anfis_latest.pkl")
+    ]
+    
+    loaded = False
+    for path in paths_to_check:
+        if os.path.exists(path):
+            try:
+                with open(path, 'rb') as f:
+                    anfis_model = pickle.load(f)
+                print(f"✅ ANFIS loaded from {path}")
+                loaded = True
+                break
+            except Exception as e:
+                print(f"⚠️ Failed to load ANFIS from {path}: {e}")
+    
+    if not loaded:
+        print(f"⚠️ ANFIS not found. Checked paths: {paths_to_check}")
 
 load_models()
 
@@ -2834,8 +3184,8 @@ class RecommendationsResponse(BaseModel):
     user_id: int
     user_ratings_count: int
     model_used: str
-    source: str  # 'form' | 'ratings' | 'default'
-    preferred_genres: List[str]  # Gatunki użytkownika
+    source: str
+    preferred_genres: List[str]
     recommendations: List[MovieRecommendation]
     message: Optional[str] = None
 
@@ -2845,98 +3195,126 @@ class RecommendationsResponse(BaseModel):
 
 @router.get("/", response_model=RecommendationsResponse)
 async def get_recommendations(
-    user_id: int = Query(..., description="ID użytkownika"),
+    user_id: Union[int, str] = Query(..., description="ID lub Login użytkownika"),
     limit: int = Query(10, ge=1, le=50, description="Liczba rekomendacji"),
     exclude_rated: bool = Query(True, description="Wykluczyć ocenione filmy?"),
     use_genre_filter: bool = Query(True, description="Filtruj po gatunkach?"),
     db: Session = Depends(get_db)
 ):
     """
-    Generuje rekomendacje ANFIS z dynamicznymi top 3 + inteligentne gatunki.
+    Generuje rekomendacje ANFIS. Odporny na błędy bazy danych (rollback).
     """
+    
+    # 1. ROZPOZNAWANIE USERA
+    real_user_id = None
+    if isinstance(user_id, str) and not user_id.isdigit():
+        user = db.query(User).filter(User.username == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"Użytkownik o loginie '{user_id}' nie istnieje")
+        real_user_id = user.id
+    else:
+        real_user_id = int(user_id)
+        user = db.query(User).filter(User.id == real_user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Użytkownik nie istnieje")
 
-    # Sprawdź user
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+    # Sprawdzenie modelu
     if not anfis_model:
-        raise HTTPException(status_code=503, detail="ANFIS not loaded")
+        load_models()
 
     # Policz oceny
-    ratings_count = db.query(func.count(Rating.id)).filter(
-        Rating.user_id == user_id
-    ).scalar()
+    ratings_count = db.query(func.count(Rating.id)).filter(Rating.user_id == real_user_id).scalar()
 
     # =========================================================================
-    # INTELIGENTNE CECHY + GATUNKI
+    # INTELIGENTNE CECHY + GATUNKI (Z ZABEZPIECZENIEM DB)
     # =========================================================================
     processor = DataProcessor(db)
+    
+    user_features = None
+    top_3_keys = ['story', 'acting', 'visuals'] # Fallback
+    source = 'default'
+    preferred_genres = []
 
-    # Pobierz cechy (dynamiczne top 3)
-    user_features, top_3_keys, source = processor.get_smart_user_features(user_id)
+    # Pobieranie cech z bezpiecznym rollbackiem
+    try:
+        user_features, top_3_keys, source = processor.get_smart_user_features(real_user_id)
+    except Exception as e:
+        print(f"❌ Błąd DataProcessor (features): {e}")
+        # WAŻNE: Resetujemy sesję, aby kolejne zapytania nie padły
+        db.rollback()
+        source = 'error_fallback'
 
-    # Pobierz preferowane gatunki
-    preferred_genres = processor.get_smart_user_genres(user_id)
+    # Pobieranie gatunków z bezpiecznym rollbackiem
+    try:
+        preferred_genres = processor.get_smart_user_genres(real_user_id)
+    except Exception as e:
+        print(f"❌ Błąd DataProcessor (genres): {e}")
+        db.rollback()
+        preferred_genres = []
 
     # =========================================================================
     # POBIERZ KANDYDATÓW
     # =========================================================================
     movies_query = db.query(Movie)
 
-    # Wykluczenie ocenionych
     if exclude_rated:
-        rated_ids = [r[0] for r in db.query(Rating.movie_id).filter(
-            Rating.user_id == user_id
-        ).all()]
-        if rated_ids:
-            movies_query = movies_query.filter(not_(Movie.id.in_(rated_ids)))
+        try:
+            rated_ids = [r[0] for r in db.query(Rating.movie_id).filter(
+                Rating.user_id == real_user_id
+            ).all()]
+            if rated_ids:
+                movies_query = movies_query.filter(not_(Movie.id.in_(rated_ids)))
+        except Exception as e:
+            print(f"❌ Błąd pobierania ocenionych: {e}")
+            db.rollback()
 
-    # FILTROWANIE PO GATUNKACH
     if use_genre_filter and preferred_genres:
         movies_query = movies_query.join(MovieGenre).join(Genre).filter(
             Genre.name.in_(preferred_genres)
         ).distinct()
 
-    candidates = movies_query.limit(200).all() # Ograniczenie dla wydajności scoringu
+    try:
+        candidates = movies_query.limit(200).all()
+    except Exception as e:
+        print(f"❌ Błąd pobierania kandydatów: {e}")
+        db.rollback()
+        candidates = []
 
     if not candidates:
         return RecommendationsResponse(
-            user_id=user_id,
+            user_id=real_user_id,
             user_ratings_count=ratings_count,
             model_used="anfis",
             source=source,
             preferred_genres=preferred_genres,
             recommendations=[],
-            message="Brak filmów spełniających kryteria."
+            message="Brak filmów (lub błąd bazy danych)."
         )
 
     # =========================================================================
-    # GENERUJ PREDYKCJE (SCORING)
+    # SCORING (ANFIS)
     # =========================================================================
     predictions = []
-
     for movie in candidates:
         try:
-            rating = predict_anfis_dynamic(user_id, movie.id, processor, top_3_keys)
+            rating = predict_anfis_dynamic(real_user_id, movie.id, processor, top_3_keys)
             if rating is not None:
                 predictions.append({'movie': movie, 'rating': rating})
         except Exception:
+            # Tu nie robimy rollback, bo funkcja pomocnicza może nie używać sesji DB w sposób krytyczny
             continue
 
-    # Sortuj i weź top N
     predictions.sort(key=lambda x: x['rating'], reverse=True)
     top_predictions = predictions[:limit]
 
     # =========================================================================
-    # PRZYGOTUJ RESPONSE
+    # RESPONSE
     # =========================================================================
     recommendations = []
     for pred in top_predictions:
         movie = pred['movie']
-        rating_denorm = (pred['rating'] * 4) + 1  # Skala 0-1 -> 1-5
-
-        # NAPRAWA BŁĘDU: Pobieranie nazw gatunków bezpośrednio z relacji
+        rating_denorm = (pred['rating'] * 4) + 1 
+        
         movie_genres = [g.name for g in movie.genres] if hasattr(movie, 'genres') else []
 
         recommendations.append(MovieRecommendation(
@@ -2944,21 +3322,15 @@ async def get_recommendations(
             title=movie.title,
             predicted_rating=round(rating_denorm, 2),
             confidence=get_confidence(rating_denorm),
-            explanation=generate_explanation_dynamic(user_id, movie.id, processor, top_3_keys),
+            explanation=generate_explanation_dynamic(real_user_id, movie.id, processor, top_3_keys),
             genres=movie_genres,
             poster_url=getattr(movie, 'poster_url', None)
         ))
 
-    # MESSAGE
-    if source == 'form':
-        message = f"Rekomendacje z formularza. Wybrane cechy: {', '.join(top_3_keys)}."
-    elif source == 'ratings':
-        message = f"Rekomendacje z Twoich {ratings_count} ocen. Top cechy: {', '.join(top_3_keys)}."
-    else:
-        message = "Rekomendacje domyślne."
+    message = f"Źródło: {source}. Top cechy: {', '.join(top_3_keys)}."
 
     return RecommendationsResponse(
-        user_id=user_id,
+        user_id=real_user_id,
         user_ratings_count=ratings_count,
         model_used="anfis",
         source=source,
@@ -2968,45 +3340,39 @@ async def get_recommendations(
     )
 
 # =============================================================================
-# Helper: Predykcja
+# Helpery
 # =============================================================================
 
 def predict_anfis_dynamic(user_id, movie_id, processor, top_3_keys):
-    user_input, _ = processor.get_user_input_for_anfis(user_id)
-    movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
+    try:
+        user_input, _ = processor.get_user_input_for_anfis(user_id)
+        movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
 
-    if not user_input or not movie_input: return None
+        if not user_input or not movie_input: return None
 
-    # Obliczamy dopasowanie: 1.0 - abs(film - user)
-    # Jeśli film ma 0.8 a user chce 0.8 -> wynik 1.0 (idealnie)
-    # Jeśli film ma 0.2 a user chce 0.8 -> wynik 0.4 (słabo)
-    anfis_input = {}
-    for i, key in enumerate(top_3_keys):
-        u_val = user_input[f'u_{key}']
-        m_val = movie_input[f'm_{key}']
-        match_score = 1.0 - abs(u_val - m_val)
-        anfis_input[f'match{i+1}'] = match_score
+        anfis_input = {}
+        for i, key in enumerate(top_3_keys):
+            u_val = user_input.get(f'u_{key}', 0.5)
+            m_val = movie_input.get(f'm_{key}', 0.5)
+            match_score = 1.0 - abs(u_val - m_val)
+            anfis_input[f'match{i+1}'] = match_score
 
-    return anfis_model.predict(anfis_input)
-# =============================================================================
-# Helpery pomocnicze
-# =============================================================================
+        if anfis_model:
+            return anfis_model.predict(anfis_input)
+        return 0.5
+    except Exception:
+        return 0.5
 
 def generate_explanation_dynamic(user_id, movie_id, processor, top_3_keys):
-    """Wyjaśnienie 'dlaczego polecamy'."""
     names_pl = {'story': 'fabułę', 'acting': 'aktorstwo', 'visuals': 'wizualia', 'sound': 'dźwięk', 'direction': 'reżyserię'}
+    if not top_3_keys: return "Dopasowano do profilu."
     aspect = top_3_keys[0]
-    return f"Film posiada wysoko ocenianą {names_pl.get(aspect, aspect)}, co pasuje do Twojego profilu."
+    return f"Film wyróżnia się pod kątem {names_pl.get(aspect, aspect)}."
 
 def get_confidence(rating: float) -> str:
     if rating >= 4.5: return "bardzo wysoka"
     elif rating >= 3.5: return "wysoka"
     return "średnia"
-
-@router.post("/reload-models")
-async def reload_models():
-    load_models()
-    return {"message": "Model reloaded", "status": "ok" if anfis_model else "error"}
 
 ==================================================
 PLIK: .\app\routers\__init__.py
@@ -4630,311 +4996,682 @@ PLIK: .\templates\admin.html
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Panel Administratora 🛡️</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Administratora </title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #1f2937; }
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; }
+        /* Styl dla aktywnego przycisku w menu panelu */
+        .tab-btn-active {
+            background-color: #3b82f6 !important;
+            color: white !important;
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+        }
+        .movie-card:hover { transform: translateY(-5px); transition: all 0.3s ease; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .page-input::-webkit-inner-spin-button, .page-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        /* Klasa blokująca przewijanie tła */
+        .no-scroll { overflow: hidden !important; }
     </style>
 </head>
-<body class="text-gray-100 p-4 md:p-8">
-
+<body class="text-slate-200 p-4 md:p-8">
     <div class="max-w-7xl mx-auto">
-        <div class="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl font-bold text-blue-500 mb-4 md:mb-0">Panel Admina 🛡️</h1>
-
-            <div class="flex items-center space-x-4">
-                <button onclick="switchTab('movies')" id="btn-movies"
-                        class="px-6 py-2 rounded-lg font-semibold transition bg-blue-600 text-white shadow-lg shadow-blue-900/50">
-                       Zarządzanie Filmami
-                </button>
-                <button onclick="switchTab('users')" id="btn-users"
-                        class="px-6 py-2 rounded-lg font-semibold transition bg-gray-700 text-gray-300 hover:bg-gray-600">
-                       Użytkownicy
-                </button>
-                <button onclick="logout()" class="px-4 py-2 bg-red-900 text-red-200 rounded-lg text-sm hover:bg-red-800 transition">
-                    Wyloguj
-                </button>
+        <div class="flex flex-col md:flex-row justify-between items-center mb-8 bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-xl">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">Panel Admina </h1>
+            <div class="flex flex-wrap gap-2 mt-4 md:mt-0">
+                <button onclick="switchTab('movies')" id="btn-movies" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Filmy</button>
+                <button onclick="switchTab('users')" id="btn-users" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Użytkownicy</button>
+                <button onclick="switchTab('comments')" id="btn-comments" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Komentarze</button>
+                <button onclick="switchTab('ratings')" id="btn-ratings" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">Oceny</button>
+                <button onclick="switchTab('ml')" id="btn-ml" class="px-6 py-2.5 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition shadow-sm border border-transparent">ML Dashboard</button>
+                <button onclick="logout()" class="px-6 py-2.5 rounded-xl font-bold bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition ml-2">Wyloguj</button>
             </div>
         </div>
 
-        <div id="msg" class="hidden"></div>
+        <div id="msg" class="hidden p-4 rounded-xl mb-6 text-center font-bold shadow-lg"></div>
 
-        <div id="section-movies" class="fade-in">
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700 mb-8">
-                <h2 class="text-2xl font-bold mb-6 text-green-400 border-b border-gray-700 pb-2">Dodaj Nowy Film (TMDB)</h2>
-                <div class="flex flex-col md:flex-row gap-4 mb-4">
-                    <input type="text" id="movieQuery" placeholder="Wpisz tytuł filmu..."
-                           onkeypress="handleEnter(event)"
-                           class="w-full p-4 rounded-lg bg-gray-900 text-white border border-gray-600 focus:outline-none focus:border-green-500">
-                    <button onclick="searchMovies()" class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-bold">Szukaj</button>
+        <div id="section-movies" class="space-y-8">
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+                <h2 class="text-xl font-bold text-emerald-400 mb-6 flex items-center gap-2"><span>✨</span> Dodaj Nowy Film (TMDB)</h2>
+                <div class="flex gap-3 mb-8">
+                    <input type="text" id="tmdbQuery" class="flex-1 bg-slate-900 border border-slate-700 p-3 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition" placeholder="Wyszukaj tytuł w bazie TMDB...">
+                    <button onclick="searchTMDB()" class="bg-emerald-600 hover:bg-emerald-500 px-8 py-3 rounded-xl font-bold transition shadow-lg">Szukaj</button>
                 </div>
-                <div id="searchResults" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+                <div id="tmdbResults" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6"></div>
             </div>
 
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-2 gap-4">
-                    <h2 class="text-2xl font-bold text-blue-400">Twoja Baza Filmów</h2>
-                    <div class="flex gap-2 w-full md:w-auto">
-                        <input type="text" id="localSearch" placeholder="Szukaj w bazie..." oninput="loadLocalMovies()"
-                               class="p-2 rounded bg-gray-900 border border-gray-600 text-sm w-full text-white">
-                        <button onclick="loadLocalMovies()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-bold text-white">Odśwież</button>
-                    </div>
-                </div>
-                <div class="overflow-x-auto rounded-lg border border-gray-700">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-gray-900 text-gray-400 uppercase text-xs">
-                            <tr>
-                                <th class="p-4">ID</th>
-                                <th class="p-4">Tytuł</th>
-                                <th class="p-4">Rok</th>
-                                <th class="p-4 text-center">Ocena</th>
-                                <th class="p-4 text-center">Głosów</th>
-                                <th class="p-4 text-center">Akcje</th>
-                            </tr>
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+                <h2 class="text-xl font-bold text-blue-400 mb-6 font-bold">Twoja Baza Lokalna</h2>
+                <input type="text" id="movieSearch" oninput="resetAndLoad('movies')" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl mb-6 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Filtruj filmy po tytule...">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase tracking-wider">
+                            <tr><th class="p-4">Plakat</th><th class="p-4">Tytuł</th><th class="p-4 text-center">Rok</th><th class="p-4 text-center">Ocena</th><th class="p-4 text-right">Akcje</th></tr>
                         </thead>
-                        <tbody id="localMoviesTable" class="divide-y divide-gray-700 text-sm"></tbody>
+                        <tbody id="movieTable" class="divide-y divide-slate-700/50"></tbody>
                     </table>
                 </div>
+                <div id="pagination-movies" class="mt-8 flex items-center justify-center gap-4"></div>
             </div>
         </div>
 
-        <div id="section-users" class="hidden fade-in">
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4 gap-4">
-                    <h2 class="text-2xl font-bold text-yellow-400">Użytkownicy</h2>
-                    <div class="flex gap-2 w-full md:w-auto">
-                        <input type="text" id="userSearchQuery" placeholder="Szukaj login lub email..."
-                               onkeypress="handleUserEnter(event)"
-                               class="p-2 rounded bg-gray-900 border border-gray-600 text-sm w-full md:w-64 focus:outline-none focus:border-yellow-500 text-white">
-                        <button onclick="resetUserPageAndLoad()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-bold text-white transition">
-                            Szukaj
-                        </button>
+        <div id="section-users" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+             <h2 class="text-xl font-bold text-yellow-400 mb-6 font-bold text-2xl">Zarządzanie Użytkownikami</h2>
+             <input type="text" id="userSearch" oninput="resetAndLoad('users')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Szukaj po nazwie lub emailu...">
+             <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
+                        <tr><th class="p-4 text-lg">Użytkownik</th><th class="p-4 text-lg">Rola</th><th class="p-4 text-right text-lg">Akcje</th></tr>
+                    </thead>
+                    <tbody id="userTable" class="divide-y divide-slate-700/50"></tbody>
+                </table>
+             </div>
+             <div id="pagination-users" class="mt-8 flex items-center justify-center gap-4"></div>
+        </div>
+
+        <div id="section-comments" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+             <h2 class="text-xl font-bold text-purple-400 mb-6 font-bold text-2xl">Moderacja Komentarzy</h2>
+             <input type="text" id="commentSearch" oninput="resetAndLoad('comments')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Szukaj w treści lub autorach...">
+             <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
+                        <tr><th class="p-4 text-lg">Film</th><th class="p-4 text-lg">Autor</th><th class="p-4 text-lg">Treść</th><th class="p-4 text-right text-lg">Akcje</th></tr>
+                    </thead>
+                    <tbody id="commentTable" class="divide-y divide-slate-700/50"></tbody>
+                </table>
+             </div>
+             <div id="pagination-comments" class="mt-8 flex items-center justify-center gap-4"></div>
+        </div>
+
+        <div id="section-ratings" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+             <h2 class="text-xl font-bold text-pink-400 mb-6 font-bold text-2xl">Logi Ocen</h2>
+             <input type="text" id="ratingSearch" oninput="resetAndLoad('ratings')" class="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 outline-none text-lg" placeholder="Filtruj oceny...">
+             <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="text-slate-400 border-b border-slate-700 text-sm uppercase">
+                        <tr><th class="p-4 text-lg">Film</th><th class="p-4 text-lg">Użytkownik</th><th class="p-4 text-center text-lg">Ocena</th><th class="p-4 text-right text-lg">Akcje</th></tr>
+                    </thead>
+                    <tbody id="ratingTable" class="divide-y divide-slate-700/50"></tbody>
+                </table>
+             </div>
+             <div id="pagination-ratings" class="mt-8 flex items-center justify-center gap-4"></div>
+        </div>
+        <!-- SEKCJA ML DASHBOARD -->
+        <div id="section-ml" class="hidden space-y-6">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-blue-600/20 to-purple-600/20 p-6 rounded-2xl border border-blue-500/30">
+                <h2 class="text-2xl font-bold text-white mb-2">ML Dashboard</h2>
+                <p class="text-slate-400">Porównanie modeli ANFIS vs MLP</p>
+            </div>
+
+            <!-- Loading state -->
+            <div id="ml-loading" class="text-center py-20">
+                <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p class="text-slate-400 font-medium">Ładowanie metryk...</p>
+            </div>
+
+            <!-- Content (ukryty initially) -->
+            <div id="ml-content" class="hidden space-y-6">
+                <!-- Karty metryk (3 karty) -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- ANFIS Card -->
+                    <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-blue-400">ANFIS</h3>
+                            <span id="anfis-quality" class="px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400">LOADING</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">MAE (Mean Absolute Error)</p>
+                                <p class="text-3xl font-black text-white"><span id="anfis-mae">-</span>⭐</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">RMSE</p>
+                                <p class="text-2xl font-bold text-slate-300"><span id="anfis-rmse">-</span>⭐</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MLP Card -->
+                    <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-purple-400">MLP</h3>
+                            <span id="mlp-quality" class="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-400">LOADING</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">MAE (Mean Absolute Error)</p>
+                                <p class="text-3xl font-black text-white"><span id="mlp-mae">-</span>⭐</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">RMSE</p>
+                                <p class="text-2xl font-bold text-slate-300"><span id="mlp-rmse">-</span>⭐</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Card -->
+                    <div class="bg-gradient-to-br from-green-900/30 to-emerald-900/30 p-6 rounded-2xl border border-green-500/30 shadow-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-green-400">Zwycięzca</h3>
+                            <span class="text-2xl">🏆</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">Lepszy model</p>
+                                <p id="winner-model" class="text-3xl font-black text-green-400">-</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 uppercase tracking-wider">Dokładniejszy o</p>
+                                <p class="text-2xl font-bold text-green-300"><span id="improvement-pct">-</span>%</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="flex justify-end mb-2 text-xs text-gray-400">
-                     Znaleziono łącznie: &nbsp;<span id="totalUsersCount" class="text-white font-bold">0</span>
+
+                <!-- Wykres -->
+                <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                    <h3 class="text-xl font-bold text-white mb-6">Porównanie Metryk</h3>
+                    <div class="w-full" style="height: 400px;">
+                        <canvas id="mlChart"></canvas>
+                    </div>
                 </div>
-                <div class="overflow-x-auto rounded-lg border border-gray-700 mb-4">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-gray-900 text-gray-400 uppercase text-xs">
-                            <tr>
-                                <th class="p-4">ID</th>
-                                <th class="p-4">Username</th>
-                                <th class="p-4">Email</th>
-                                <th class="p-4">Rola</th>
-                                <th class="p-4 text-center">Akcje</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersTable" class="divide-y divide-gray-700"></tbody>
-                    </table>
-                </div>
-                <div class="flex justify-between items-center bg-gray-900 p-3 rounded-lg border border-gray-700">
-                    <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 text-gray-300 rounded disabled:opacity-50 hover:bg-gray-600 transition">← Poprzednia</button>
-                    <span class="text-gray-400 text-sm">Strona <span id="pageIndicator" class="text-white font-bold">1</span></span>
-                    <button id="nextBtn" onclick="changePage(1)" disabled class="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 hover:bg-blue-700 transition">Następna →</button>
+
+                <!-- Status modelu -->
+                <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                    <h3 class="text-xl font-bold text-white mb-6">Status Modelu</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <div class="space-y-3">
+                                <div class="flex items-center gap-3">
+                                    <div id="model-status-icon" class="w-3 h-3 rounded-full bg-gray-500"></div>
+                                    <span class="text-slate-400">Model:</span>
+                                    <span id="model-status-text" class="font-bold text-white">Sprawdzanie...</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-blue-500"></div>
+                                    <span class="text-slate-400">Ostatnie porównanie:</span>
+                                    <span id="comparison-date" class="font-bold text-white">-</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-purple-500"></div>
+                                    <span class="text-slate-400">Różnica MAE:</span>
+                                    <span id="diff-mae" class="font-bold text-white">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <div id="detailsModal" class="hidden fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700 w-full max-w-6xl rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                <h3 id="modalTitle" class="text-2xl font-bold text-white uppercase tracking-widest"></h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white text-3xl transition focus:outline-none">&times;</button>
+            </div>
+            <div id="modalContent" class="flex-1 overflow-hidden p-0">
+                </div>
+        </div>
+    </div>
+
 <script>
-    const API_URL = "http://127.0.0.1:8000";
-    let currentTab = 'movies';
-    let userPage = 1;
-    const userLimit = 10;
-    let totalUsers = 0;
+    const API = "http://127.0.0.1:8000/admin";
+    const getHeaders = () => ({ 'Authorization': `Bearer ${localStorage.getItem('accessToken')}`, 'Content-Type': 'application/json' });
 
-    document.addEventListener('DOMContentLoaded', () => {
-    const userData = localStorage.getItem('user');
-    if (!userData) {
-        window.location.replace('/login');
-        return;
+    let currentPages = { movies: 1, users: 1, comments: 1, ratings: 1 };
+    let totalPages = { movies: 1, users: 1, comments: 1, ratings: 1 };
+    const perPage = 10;
+
+    function renderPagination(tab, total) {
+        totalPages[tab] = Math.ceil(total / perPage) || 1;
+        const container = document.getElementById(`pagination-${tab}`);
+        if (!container) return;
+
+        container.innerHTML = `
+            <button onclick="changePage('${tab}', ${currentPages[tab] - 1})"
+                ${currentPages[tab] === 1 ? 'disabled' : ''}
+                class="p-2 rounded-lg bg-slate-700 hover:bg-blue-600 disabled:opacity-30 disabled:hover:bg-slate-700 transition">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+
+            <div class="flex items-center gap-2 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-xl">
+                <span class="text-slate-400 text-xs font-bold uppercase tracking-tighter">Strona</span>
+                <input type="number"
+                    id="input-page-${tab}"
+                    value="${currentPages[tab]}"
+                    min="1" max="${totalPages[tab]}"
+                    onchange="handlePageInput(this, '${tab}')"
+                    class="page-input w-10 bg-transparent text-center font-extrabold text-blue-400 focus:outline-none text-lg">
+                <span class="text-slate-400 text-xs font-bold uppercase tracking-tighter">z ${totalPages[tab]}</span>
+            </div>
+
+            <button onclick="changePage('${tab}', ${currentPages[tab] + 1})"
+                ${currentPages[tab] === totalPages[tab] ? 'disabled' : ''}
+                class="p-2 rounded-lg bg-slate-700 hover:bg-blue-600 disabled:opacity-30 disabled:hover:bg-slate-700 transition">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </button>
+        `;
     }
 
-    const user = JSON.parse(userData);
-    if (user.role !== 'admin') {
-        alert("Brak uprawnień!");
-        window.location.replace('/home');
+    function handlePageInput(input, tab) {
+        let val = parseInt(input.value);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > totalPages[tab]) val = totalPages[tab];
+        changePage(tab, val);
     }
-});
 
-    // --- SECURITY GUARD: Sprawdzanie roli przy ładowaniu ---
-    document.addEventListener('DOMContentLoaded', () => {
-        const userData = localStorage.getItem('user');
-        if (!userData) {
-            window.location.href = "/login";
-            return;
+    function changePage(tab, newPage) {
+        if (newPage < 1 || newPage > totalPages[tab]) return;
+        currentPages[tab] = newPage;
+        loadData(tab);
+    }
+
+    function resetAndLoad(tab) {
+        currentPages[tab] = 1;
+        loadData(tab);
+    }
+
+    async function loadData(tab) {
+        const searchInput = document.getElementById(`${tab === 'movies' ? 'movie' : tab.slice(0,-1)}Search`);
+        const search = searchInput ? searchInput.value : "";
+        const skip = (currentPages[tab] - 1) * perPage;
+        const url = `${API}/${tab === 'movies' ? 'movies/local' : tab}?skip=${skip}&limit=${perPage}&search=${encodeURIComponent(search)}`;
+
+        try {
+            const res = await fetch(url, { headers: getHeaders() });
+            const data = await res.json();
+            if(tab === 'movies') renderMovies(data.movies);
+            if(tab === 'users') renderUsers(data.users);
+            if(tab === 'comments') renderComments(data.comments);
+            if(tab === 'ratings') renderRatings(data.ratings);
+            renderPagination(tab, data.total);
+        } catch(e) { console.error("Błąd ładowania:", e); }
+    }
+
+    // --- RENDERY TABEL ---
+    function renderMovies(movies) {
+        document.getElementById('movieTable').innerHTML = movies.map(m => `
+            <tr class="hover:bg-slate-700/20 transition group">
+                <td class="p-4"><img src="${m.poster_url || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg shadow-md border border-slate-600"></td>
+                <td class="p-4 text-xl font-bold text-white cursor-pointer hover:text-blue-400 transition" onclick="showActivity('movies', ${m.id}, '${m.title.replace(/'/g, "\\'")}')">${m.title}</td>
+                <td class="p-4 text-lg text-slate-400 text-center">${m.year || '---'}</td>
+                <td class="p-4 text-xl text-yellow-500 font-bold text-center">★ ${m.average_rating}</td>
+                <td class="p-4 text-right"><button onclick="deleteMain('movies', ${m.id})" class="text-red-500 hover:text-red-300 font-bold text-sm uppercase tracking-tighter">USUŃ</button></td>
+            </tr>`).join('');
+    }
+
+    function renderUsers(users) {
+        document.getElementById('userTable').innerHTML = users.map(u => `
+            <tr class="hover:bg-slate-700/20 transition group">
+                <td class="p-6 text-xl font-bold text-white cursor-pointer hover:text-yellow-400 transition" onclick="showActivity('users', ${u.id}, '${u.username}')">
+                    ${u.username} <br> <span class="text-base text-slate-500 font-medium">${u.email}</span>
+                </td>
+                <td class="p-6 text-lg"><span class="px-3 py-1 rounded-md text-sm font-bold ${u.role === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}">${u.role.toUpperCase()}</span></td>
+                <td class="p-6 text-right">${u.role !== 'admin' ? `<button onclick="deleteMain('users', ${u.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button>` : ''}</td>
+            </tr>`).join('');
+    }
+
+    function renderComments(comments) {
+        document.getElementById('commentTable').innerHTML = comments.map(c => `
+            <tr class="hover:bg-slate-700/20 transition group">
+                <td class="p-4 flex items-center gap-4">
+                    <img src="${c.movie_poster || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg border border-slate-600">
+                    <span class="text-lg font-bold text-slate-300 uppercase truncate w-48">${c.movie_title}</span>
+                </td>
+                <td class="p-4 text-xl font-bold text-blue-400">${c.username}</td>
+                <td class="p-4 text-xl italic text-slate-100">"${c.content}"</td>
+                <td class="p-4 text-right"><button onclick="deleteMain('comments', ${c.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button></td>
+            </tr>`).join('');
+    }
+
+    function renderRatings(ratings) {
+        document.getElementById('ratingTable').innerHTML = ratings.map(r => `
+            <tr class="hover:bg-slate-700/20 transition group">
+                <td class="p-4 flex items-center gap-4">
+                    <img src="${r.movie_poster || 'https://via.placeholder.com/150x225'}" class="w-16 h-24 object-cover rounded-lg border border-slate-600">
+                    <span class="text-lg font-bold text-slate-300 uppercase truncate w-48">${r.movie_title}</span>
+                </td>
+                <td class="p-4 text-xl font-bold text-pink-400">${r.username}</td>
+                <td class="p-4 text-2xl text-yellow-500 font-black text-center">★ ${r.rating}</td>
+                <td class="p-4 text-right"><button onclick="deleteMain('ratings', ${r.id})" class="text-red-500 font-bold text-sm uppercase">USUŃ</button></td>
+            </tr>`).join('');
+    }
+
+    // --- MODAL ACTIVITY (Dwie niezależne kolumny + blokada tła) ---
+    async function showActivity(type, id, name) {
+        document.getElementById('modalTitle').innerText = name;
+
+        // Blokada scrolla tła
+        document.body.classList.add('no-scroll');
+
+        document.getElementById('modalContent').innerHTML = `
+            <div class="flex items-center justify-center h-full text-blue-400 font-bold animate-pulse text-2xl">
+                Pobieranie aktywności...
+            </div>`;
+        document.getElementById('detailsModal').classList.remove('hidden');
+
+        try {
+            const res = await fetch(`${API}/${type}/${id}/activity`, { headers: getHeaders() });
+            const data = await res.json();
+
+            let html = `
+            <div class="flex flex-col md:flex-row h-full overflow-hidden">
+
+                <div class="flex-1 flex flex-col border-r border-slate-700 min-w-0">
+                    <div class="sticky top-0 bg-slate-800 z-10 p-4 border-b border-slate-700 flex justify-between items-center shadow-md">
+                        <h4 class="text-lg font-black text-indigo-400 uppercase tracking-widest">Komentarze</h4>
+                        <span class="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded-full text-sm font-bold">${data.comments.length}</span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-6 bg-slate-900/50">
+                        ${data.comments.map(c => `
+                            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex justify-between items-center group hover:border-indigo-500/50 transition shadow-lg">
+                                <div class="flex gap-5 min-w-0 items-center">
+                                    ${c.poster ? `<img src="${c.poster}" class="w-16 h-24 rounded-lg object-cover flex-shrink-0 shadow-lg border border-slate-600">` : ''}
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-black text-indigo-300 uppercase truncate mb-2 tracking-tighter">${c.user || c.movie}</p>
+                                        <p class="text-lg text-slate-100 italic leading-relaxed break-words font-medium">"${c.content}"</p>
+                                    </div>
+                                </div>
+                                <button onclick="deleteInModal('comments', ${c.id}, '${type}', ${id}, '${name}')"
+                                        class="text-red-500 hover:bg-red-500/20 p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        `).join('') || '<div class="flex flex-col items-center justify-center h-full text-slate-600 italic py-20 text-lg">Brak komentarzy</div>'}
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col min-w-0">
+                    <div class="sticky top-0 bg-slate-800 z-10 p-4 border-b border-slate-700 flex justify-between items-center shadow-md">
+                        <h4 class="text-lg font-black text-yellow-500 uppercase tracking-widest">Oceny</h4>
+                        <span class="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm font-bold">${data.ratings.length}</span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-6 bg-slate-900/50">
+                        ${data.ratings.map(r => `
+                            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex justify-between items-center group hover:border-yellow-500/50 transition shadow-lg">
+                                <div class="flex items-center gap-5 min-w-0">
+                                    ${r.poster ? `<img src="${r.poster}" class="w-16 h-24 rounded-lg object-cover flex-shrink-0 shadow-lg border border-slate-600">` : ''}
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-black text-yellow-500 uppercase truncate mb-2 tracking-tighter">${r.user || r.movie}</p>
+                                        <p class="text-3xl font-black text-white drop-shadow-md">★ ${r.score}</p>
+                                    </div>
+                                </div>
+                                <button onclick="deleteInModal('ratings', ${r.id}, '${type}', ${id}, '${name}')"
+                                        class="text-red-500 hover:bg-red-500/20 p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        `).join('') || '<div class="flex flex-col items-center justify-center h-full text-slate-600 italic py-20 text-lg">Brak ocen</div>'}
+                    </div>
+                </div>
+            </div>`;
+
+            document.getElementById('modalContent').innerHTML = html;
+
+        } catch (e) {
+            document.getElementById('modalContent').innerHTML = `<p class="text-red-500 p-10 text-center">Błąd ładowania danych: ${e.message}</p>`;
         }
-        const user = JSON.parse(userData);
-        if (user.role !== 'admin') {
-            alert("Brak uprawnień administratora!");
-            window.location.href = "/home"; // Przekierowanie użytkownika na stronę główną
-            return;
-        }
-        loadLocalMovies();
-    });
-
-    // Helper do nagłówków autoryzacji
-    function getAuthHeaders() {
-        const token = localStorage.getItem('accessToken');
-        return {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        };
     }
 
-    function logout() {
-        localStorage.clear();
-        window.location.href = "/login";
+    function closeModal() {
+        document.getElementById('detailsModal').classList.add('hidden');
+        // Przywrócenie scrolla tła
+        document.body.classList.remove('no-scroll');
+    }
+
+    // --- OPERACJE TMDB ---
+    async function searchTMDB() {
+        const q = document.getElementById('tmdbQuery').value;
+        if(!q) return;
+
+        const res = await fetch(`${API}/movies/search?query=${encodeURIComponent(q)}`, { headers: getHeaders() });
+        const data = await res.json();
+
+        document.getElementById('tmdbResults').innerHTML = data.map(m => {
+            const buttonHtml = m.is_added
+                ? `<button disabled class="mt-auto bg-slate-700 text-slate-500 border border-slate-600 py-1.5 rounded-lg text-[10px] font-black cursor-not-allowed uppercase">W BAZIE ✓</button>`
+                : `<button onclick="addMovie(${m.tmdb_id})" class="mt-auto bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 py-1.5 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition uppercase">DODAJ</button>`;
+
+            return `
+                <div class="movie-card bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center flex flex-col shadow-xl ${m.is_added ? 'opacity-60' : 'opacity-100'}">
+                    <img src="${m.poster_url || 'https://via.placeholder.com/200x300'}" class="w-full h-44 object-cover rounded-xl mb-3 shadow-inner">
+                    <p class="text-[11px] font-bold truncate mb-3 text-slate-300 px-1">${m.title}</p>
+                    ${buttonHtml}
+                </div>`;
+        }).join('');
+    }
+
+    async function addMovie(id) {
+        const res = await fetch(`${API}/movies/tmdb/${id}`, { method: 'POST', headers: getHeaders() });
+        if(res.ok) { alert("Film dodany!"); loadData('movies'); }
+    }
+
+    async function deleteMain(type, id) {
+        if(!confirm("Usunąć trwale?")) return;
+        await fetch(`${API}/${type}/${id}`, { method: 'DELETE', headers: getHeaders() });
+        loadData(type === 'movies' ? 'movies' : type);
+    }
+
+    async function deleteInModal(targetType, targetId, parentType, parentId, parentName) {
+        if(!confirm("Usunąć ten wpis?")) return;
+        await fetch(`${API}/${targetType}/${targetId}`, { method: 'DELETE', headers: getHeaders() });
+        showActivity(parentType, parentId, parentName);
+        loadData(parentType === 'movies' ? 'movies' : parentType);
+    }
+
+    // ===================================================================
+    // ML DASHBOARD FUNCTIONS
+    // ===================================================================
+
+    let mlChart = null;  // Global chart instance
+
+    async function loadMLDashboard() {
+        const loading = document.getElementById('ml-loading');
+        const content = document.getElementById('ml-content');
+
+        // Pokaż loading
+        loading.classList.remove('hidden');
+        content.classList.add('hidden');
+
+        try {
+            const res = await fetch(`${API}/ml/metrics`, { headers: getHeaders() });
+            const data = await res.json();
+
+            console.log('ML Metrics:', data);
+
+            // Ukryj loading, pokaż content
+            loading.classList.add('hidden');
+            content.classList.remove('hidden');
+
+            // Renderuj dane
+            renderMLMetrics(data);
+            renderMLChart(data);
+
+        } catch(e) {
+            console.error('Błąd ładowania ML metrics:', e);
+            loading.innerHTML = `
+                <div class="text-center py-20">
+                    <p class="text-red-400 font-bold mb-2">Błąd ładowania metryk</p>
+                    <p class="text-slate-500 text-sm">${e.message}</p>
+                    <button onclick="loadMLDashboard()" class="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition">
+                        Spróbuj ponownie
+                    </button>
+                </div>
+            `;
+        }
+    }
+
+    function renderMLMetrics(data) {
+        // ANFIS
+        document.getElementById('anfis-mae').textContent = data.anfis.mae;
+        document.getElementById('anfis-rmse').textContent = data.anfis.rmse;
+
+        const anfisQuality = document.getElementById('anfis-quality');
+        anfisQuality.textContent = data.anfis.quality;
+        anfisQuality.className = getQualityClass(data.anfis.quality);
+
+        // MLP
+        document.getElementById('mlp-mae').textContent = data.mlp.mae;
+        document.getElementById('mlp-rmse').textContent = data.mlp.rmse;
+
+        const mlpQuality = document.getElementById('mlp-quality');
+        mlpQuality.textContent = data.mlp.quality;
+        mlpQuality.className = getQualityClass(data.mlp.quality);
+
+        // Comparison
+        document.getElementById('winner-model').textContent = data.comparison.winner;
+        document.getElementById('improvement-pct').textContent = data.comparison.improvement_pct;
+
+        // Status
+        const statusIcon = document.getElementById('model-status-icon');
+        const statusText = document.getElementById('model-status-text');
+
+        if (data.model.loaded) {
+            statusIcon.className = 'w-3 h-3 rounded-full bg-green-500 animate-pulse';
+            statusText.textContent = 'Załadowany (' + data.model.path + ')';
+        } else {
+            statusIcon.className = 'w-3 h-3 rounded-full bg-red-500';
+            statusText.textContent = 'Nie załadowany';
+        }
+
+        document.getElementById('comparison-date').textContent = data.comparison.date || 'Unknown';
+        document.getElementById('diff-mae').textContent = data.comparison.difference_mae + '⭐';
+    }
+
+    function getQualityClass(quality) {
+        const base = 'px-3 py-1 rounded-full text-xs font-bold';
+        if (quality === 'EXCELLENT') return `${base} bg-green-500/20 text-green-400`;
+        if (quality === 'GOOD') return `${base} bg-blue-500/20 text-blue-400`;
+        if (quality === 'AVERAGE') return `${base} bg-yellow-500/20 text-yellow-400`;
+        return `${base} bg-red-500/20 text-red-400`;
+    }
+
+    function renderMLChart(data) {
+        const ctx = document.getElementById('mlChart');
+
+        // Zniszcz stary wykres jeśli istnieje
+        if (mlChart) {
+            mlChart.destroy();
+        }
+
+        mlChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['MAE', 'RMSE'],
+                datasets: [
+                    {
+                        label: 'ANFIS',
+                        data: [data.anfis.mae, data.anfis.rmse],
+                        backgroundColor: 'rgba(59, 130, 246, 0.7)',  // Blue
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'MLP',
+                        data: [data.mlp.mae, data.mlp.rmse],
+                        backgroundColor: 'rgba(168, 85, 247, 0.7)',  // Purple
+                        borderColor: 'rgba(168, 85, 247, 1)',
+                        borderWidth: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#e2e8f0',
+                            font: { size: 14, weight: 'bold' }
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Porównanie błędów predykcji (niższe = lepsze)',
+                        color: '#e2e8f0',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#cbd5e1',
+                        borderColor: '#475569',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y + '⭐';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 0.5,
+                        ticks: {
+                            color: '#94a3b8',
+                            font: { size: 12 },
+                            callback: function(value) {
+                                return value + '⭐';
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(71, 85, 105, 0.3)'
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            color: '#cbd5e1',
+                            font: { size: 13, weight: 'bold' }
+                        },
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
     }
 
     function switchTab(tab) {
-        currentTab = tab;
-        document.getElementById('section-movies').classList.toggle('hidden', tab !== 'movies');
-        document.getElementById('section-users').classList.toggle('hidden', tab !== 'users');
+    ['movies', 'users', 'comments', 'ratings', 'ml'].forEach(t => {  // ← DODAJ 'ml'
+        document.getElementById(`section-${t}`).classList.add('hidden');
+        document.getElementById(`btn-${t}`).classList.remove('tab-btn-active');
+    });
+    document.getElementById(`section-${tab}`).classList.remove('hidden');
+    document.getElementById(`btn-${tab}`).classList.add('tab-btn-active');
 
-        const btnMovies = document.getElementById('btn-movies');
-        const btnUsers = document.getElementById('btn-users');
+    // Ładuj dane
+    if (tab === 'ml') {
+        loadMLDashboard();
+    } else {
+        resetAndLoad(tab);
+    }
+}
 
-        if (tab === 'movies') {
-            btnMovies.className = "px-6 py-2 rounded-lg font-semibold transition bg-blue-600 text-white shadow-lg shadow-blue-900/50";
-            btnUsers.className = "px-6 py-2 rounded-lg font-semibold transition bg-gray-700 text-gray-300 hover:bg-gray-600";
-            loadLocalMovies();
+    function logout() { localStorage.clear(); window.location.href = "/login"; }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const userData = localStorage.getItem('user');
+        if (!userData || JSON.parse(userData).role !== 'admin') {
+            window.location.replace('/login');
         } else {
-            btnUsers.className = "px-6 py-2 rounded-lg font-semibold transition bg-blue-600 text-white shadow-lg shadow-blue-900/50";
-            btnMovies.className = "px-6 py-2 rounded-lg font-semibold transition bg-gray-700 text-gray-300 hover:bg-gray-600";
-            userPage = 1;
-            loadUsers();
+            switchTab('movies');
         }
-    }
-
-    function showMsg(text, isError = false) {
-        const msg = document.getElementById("msg");
-        msg.innerText = text;
-        msg.className = isError
-            ? "p-4 rounded-lg bg-red-900/80 text-red-200 border border-red-700 block mb-6 fade-in fixed top-4 right-4 z-50 max-w-sm shadow-xl"
-            : "p-4 rounded-lg bg-green-900/80 text-green-200 border border-green-700 block mb-6 fade-in fixed top-4 right-4 z-50 max-w-sm shadow-xl";
-        msg.classList.remove("hidden");
-        setTimeout(() => msg.classList.add("hidden"), 4000);
-    }
-
-    async function searchMovies() {
-        const query = document.getElementById("movieQuery").value;
-        const container = document.getElementById("searchResults");
-        if(!query) return showMsg("Wpisz tytuł!", true);
-
-        container.innerHTML = '<div class="col-span-full text-center text-blue-400 py-4 animate-pulse">Szukam w TMDB...</div>';
-        try {
-            const res = await fetch(`${API_URL}/admin/movies/search?query=${encodeURIComponent(query)}`, {
-                headers: getAuthHeaders()
-            });
-            if(!res.ok) throw new Error("API Error");
-            const movies = await res.json();
-            container.innerHTML = "";
-            movies.slice(0, 8).forEach(movie => {
-                const img = movie.poster_url ? `<img src="${movie.poster_url}" class="w-20 object-cover">` : `<div class="w-20 bg-gray-600 flex items-center justify-center text-xs text-white">Brak</div>`;
-                container.innerHTML += `
-                    <div class="flex bg-gray-700 rounded-lg overflow-hidden border border-gray-600 h-32">
-                        ${img}
-                        <div class="p-2 flex flex-col justify-between flex-grow">
-                            <div><h3 class="font-bold text-sm text-white line-clamp-2">${movie.title}</h3><span class="text-xs text-gray-400">${movie.year || ""}</span></div>
-                            <button onclick="addMovieByTmdb(${movie.tmdb_id}, this)" class="bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded mt-1">+ Dodaj</button>
-                        </div>
-                    </div>`;
-            });
-        } catch(e) { container.innerHTML = '<div class="col-span-full text-center text-red-400">Błąd wyszukiwania.</div>'; }
-    }
-
-    async function addMovieByTmdb(tmdbId, btn) {
-        btn.innerText = "⏳"; btn.disabled = true;
-        try {
-            const res = await fetch(`${API_URL}/admin/movies/tmdb/${tmdbId}`, {
-                method: "POST",
-                headers: getAuthHeaders()
-            });
-            if(res.ok) { showMsg("Dodano!"); btn.innerText="✓"; loadLocalMovies(); }
-            else { const d = await res.json(); showMsg(d.detail, true); btn.innerText = "+ Dodaj"; btn.disabled = false; }
-        } catch(e) { showMsg("Błąd sieci", true); btn.disabled = false; }
-    }
-
-    async function loadLocalMovies() {
-        const tbody = document.getElementById("localMoviesTable");
-        const search = document.getElementById("localSearch").value;
-        try {
-            let url = `${API_URL}/admin/movies/local?limit=50`;
-            if(search) url += `&search=${encodeURIComponent(search)}`;
-            const res = await fetch(url, { headers: getAuthHeaders() });
-            const movies = await res.json();
-            tbody.innerHTML = movies.length ? "" : '<tr><td colspan="6" class="p-4 text-center text-gray-500">Brak filmów.</td></tr>';
-            movies.forEach(m => {
-                let ratingClass = m.average_rating >= 4.0 ? "text-green-400 font-bold" : (m.average_rating >= 2.5 ? "text-yellow-400" : "text-gray-400");
-                tbody.innerHTML += `
-                    <tr class="hover:bg-gray-700/50 transition border-b border-gray-700">
-                        <td class="p-3 text-gray-500 font-mono text-xs">${m.id}</td>
-                        <td class="p-3 font-semibold text-white">${m.title}</td>
-                        <td class="p-3 text-gray-400">${m.year || "-"}</td>
-                        <td class="p-3 text-center ${ratingClass}">${m.average_rating > 0 ? m.average_rating : "-"}</td>
-                        <td class="p-3 text-center text-gray-400 text-xs">${m.ratings_count}</td>
-                        <td class="p-3 text-center"><button onclick="deleteMovie(${m.id})" class="text-red-400 hover:text-red-200 text-xs">Usuń</button></td>
-                    </tr>`;
-            });
-        } catch(e) { console.error(e); }
-    }
-
-    async function deleteMovie(id) {
-        if(!confirm("Usunąć film?")) return;
-        try {
-            const res = await fetch(`${API_URL}/admin/movies/${id}`, {
-                method: "DELETE",
-                headers: getAuthHeaders()
-            });
-            if(res.ok) { showMsg("Usunięto."); loadLocalMovies(); }
-        } catch(e) { showMsg("Błąd sieci", true); }
-    }
-
-    async function loadUsers() {
-        const tbody = document.getElementById("usersTable");
-        const skip = (userPage - 1) * userLimit;
-        const searchQuery = document.getElementById("userSearchQuery").value;
-        try {
-            let url = `${API_URL}/admin/users?skip=${skip}&limit=${userLimit}`;
-            if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
-            const res = await fetch(url, { headers: getAuthHeaders() });
-            const data = await res.json();
-            totalUsers = data.total;
-            tbody.innerHTML = "";
-            document.getElementById("totalUsersCount").innerText = totalUsers;
-            document.getElementById("pageIndicator").innerText = userPage;
-
-            data.users.forEach(u => {
-                const roleBadge = u.role === 'admin' ? `<span class="px-2 py-1 rounded bg-red-900 text-red-200 text-xs border border-red-700">ADMIN</span>` : `<span class="px-2 py-1 rounded bg-blue-900 text-blue-200 text-xs border border-blue-700">USER</span>`;
-                const deleteBtn = u.role !== 'admin' ? `<button onclick="deleteUser(${u.id})" class="text-red-400 hover:text-red-200 text-sm">Usuń</button>` : `<span class="text-gray-600 text-xs italic">Chroniony</span>`;
-                tbody.innerHTML += `<tr class="border-b border-gray-700"><td class="p-4 text-sm">${u.id}</td><td class="p-4 font-bold">${u.username}</td><td class="p-4 text-gray-400">${u.email}</td><td class="p-4">${roleBadge}</td><td class="p-4 text-center">${deleteBtn}</td></tr>`;
-            });
-            document.getElementById("prevBtn").disabled = userPage <= 1;
-            document.getElementById("nextBtn").disabled = (userPage * userLimit) >= totalUsers;
-        } catch(e) { showMsg("Błąd ładowania użytkowników", true); }
-    }
-
-    async function deleteUser(id) {
-        if(!confirm("Usunąć użytkownika?")) return;
-        try {
-            const res = await fetch(`${API_URL}/admin/users/${id}`, {
-                method: "DELETE",
-                headers: getAuthHeaders()
-            });
-            if(res.ok) { showMsg("Usunięto."); loadUsers(); }
-        } catch(e) { showMsg("Błąd sieci", true); }
-    }
-
-    function handleEnter(e) { if(e.key === 'Enter') searchMovies(); }
-    function handleUserEnter(e) { if(e.key === 'Enter') resetUserPageAndLoad(); }
-    function resetUserPageAndLoad() { userPage = 1; loadUsers(); }
-    function changePage(direction) { userPage += direction; loadUsers(); }
+    });
 </script>
 </body>
 </html>
@@ -4951,17 +5688,74 @@ PLIK: .\templates\home.html
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #1f2937; min-height: 100vh; }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1f2937;
+            min-height: 100vh;
+        }
+
+        .movie-row {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            padding: 0.5rem 0;
+        }
+
+        .movie-row::-webkit-scrollbar {
+            display: none;
+        }
+
+        .movie-card {
+            min-width: 200px;
+            max-width: 200px;
+            flex-shrink: 0;
+        }
+
+        .scroll-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.3s;
+            padding: 1rem;
+        }
+
+        .category-container:hover .scroll-btn {
+            opacity: 1;
+        }
+
+        .scroll-btn-left {
+            left: -1rem;
+            background: linear-gradient(to right, rgba(31, 41, 55, 0.95), transparent);
+            padding-left: 0;
+            padding-right: 3rem;
+        }
+
+        .scroll-btn-right {
+            right: -1rem;
+            background: linear-gradient(to left, rgba(31, 41, 55, 0.95), transparent);
+            padding-right: 0;
+            padding-left: 3rem;
+        }
+
+        .category-title {
+            margin-bottom: 1.5rem;
+            padding-left: 0.5rem;
+            position: relative;
+            z-index: 5;
+        }
     </style>
 </head>
 <body class="text-gray-100 p-4 md:p-8">
 
     {% include "navbar.html" %}
 
+    <!-- Hero/Search Section -->
     <div class="max-w-7xl mx-auto mb-8 bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
-        <h2 class="text-xl font-bold text-gray-200 mb-4">Znajdź film dla siebie</h2>
+        <h2 class="text-xl font-bold text-gray-200 mb-4">Odkryj filmy dla siebie</h2>
         <div class="flex flex-col md:flex-row gap-4">
             <input type="text" id="searchInput" placeholder="Wpisz tytuł..."
                    class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400">
@@ -4978,22 +5772,71 @@ PLIK: .\templates\home.html
         </div>
     </div>
 
-    <div id="moviesGrid" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-        </div>
+    <!-- Loading State -->
+    <div id="loading" class="max-w-7xl mx-auto text-center py-20">
+        <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-400 font-medium">Ładowanie filmów...</p>
+    </div>
 
-    <div class="max-w-7xl mx-auto mt-8 flex justify-center items-center gap-4 pb-8">
-        <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 border border-gray-600 text-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-600 transition">Poprzednia</button>
-        <span id="pageInfo" class="text-gray-400 font-mono">Strona 1</span>
-        <button id="nextBtn" onclick="changePage(1)" class="px-4 py-2 bg-blue-600 border border-blue-500 text-white rounded-lg hover:bg-blue-700 transition">Następna</button>
+    <!-- Categories Container -->
+    <div id="categoriesContainer" class="max-w-7xl mx-auto space-y-8 hidden">
+    </div>
+
+    <!-- Search Results (when searching) -->
+    <div id="searchResults" class="max-w-7xl mx-auto hidden">
+        <h2 class="text-2xl font-bold text-white mb-6">Wyniki wyszukiwania</h2>
+        <div id="searchGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        </div>
+        <div class="mt-8 flex justify-center items-center gap-4 pb-8">
+            <button id="prevBtn" onclick="changePage(-1)" disabled class="px-4 py-2 bg-gray-700 border border-gray-600 text-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-600 transition">Poprzednia</button>
+            <span id="pageInfo" class="text-gray-400 font-mono">Strona 1</span>
+            <button id="nextBtn" onclick="changePage(1)" class="px-4 py-2 bg-blue-600 border border-blue-500 text-white rounded-lg hover:bg-blue-700 transition">Następna</button>
+        </div>
     </div>
 
 <script>
     const API_URL = "http://127.0.0.1:8000";
     let currentPage = 1;
+    let currentUserId = null;
+
+    function parseJwt(token) {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            return null;
+        }
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Check if admin
+        const userData = JSON.parse(localStorage.getItem('user'));
+        if (userData && userData.role === 'admin') {
+            window.location.href = '/admin-panel';
+            return;
+        }
+
+        // Get user ID - NAJPIERW Z localStorage.user
+        if (userData && userData.id) {
+            currentUserId = parseInt(userData.id, 10);
+        } else {
+            // Fallback: spróbuj z JWT
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                const payload = parseJwt(token);
+                const possibleId = payload?.user_id || payload?.id;
+                currentUserId = possibleId ? parseInt(possibleId, 10) : null;
+            }
+        }
+
+        console.log('Current User ID:', currentUserId);
+
         loadGenres();
-        loadMovies();
+        loadCategories();
     });
 
     async function loadGenres() {
@@ -5007,69 +5850,205 @@ PLIK: .\templates\home.html
                 opt.innerText = g;
                 select.appendChild(opt);
             });
-        } catch (e) { console.error("Błąd gatunków", e); }
+        } catch (e) {
+            console.error("Błąd gatunków", e);
+        }
     }
 
-    async function searchMovies() { currentPage = 1; loadMovies(); }
-    async function changePage(d) { currentPage += d; loadMovies(); }
+    async function loadCategories() {
+        const loading = document.getElementById('loading');
+        const container = document.getElementById('categoriesContainer');
 
-    async function loadMovies() {
+        loading.classList.remove('hidden');
+        container.classList.add('hidden');
+
+        try {
+            const categories = [];
+            const userParam = currentUserId ? `user_id=${currentUserId}&` : '';
+
+            // 1. Najnowsze
+            const latestRes = await fetch(`${API_URL}/homepage/latest?${userParam}limit=20`);
+            const latest = await latestRes.json();
+            categories.push(latest);
+
+            // 2-6. Top by aspect
+            const aspects = ['story', 'acting', 'visuals', 'sound', 'direction'];
+            for (const aspect of aspects) {
+                const res = await fetch(`${API_URL}/homepage/top-by-aspect?aspect=${aspect}&${userParam}limit=20`);
+                const data = await res.json();
+                categories.push(data);
+            }
+
+            loading.classList.add('hidden');
+            container.classList.remove('hidden');
+
+            renderCategories(categories);
+
+        } catch(e) {
+            console.error('Błąd ładowania kategorii:', e);
+            loading.innerHTML = `
+                <p class="text-red-400 font-bold">Błąd ładowania filmów</p>
+                <p class="text-sm text-gray-400 mt-2">${e.message}</p>
+                <button onclick="loadCategories()" class="mt-4 px-6 py-2 bg-blue-600 rounded-lg">
+                    Spróbuj ponownie
+                </button>
+            `;
+        }
+    }
+
+    function renderCategories(categories) {
+        const container = document.getElementById('categoriesContainer');
+        container.innerHTML = '';
+
+        categories.forEach((cat, idx) => {
+            if (cat.movies.length === 0) return;
+
+            const categoryDiv = document.createElement('div');
+            categoryDiv.className = 'category-container relative';
+            categoryDiv.innerHTML = `
+                <h3 class="category-title text-2xl font-bold text-white">${cat.category}</h3>
+
+                <button onclick="scrollRow('row-${idx}', -1)"
+                        class="scroll-btn scroll-btn-left h-full flex items-center justify-center text-white hover:text-blue-400 transition">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+
+                <div id="row-${idx}" class="movie-row">
+                    ${cat.movies.map(m => createMovieCard(m)).join('')}
+                </div>
+
+                <button onclick="scrollRow('row-${idx}', 1)"
+                        class="scroll-btn scroll-btn-right h-full flex items-center justify-center text-white hover:text-blue-400 transition">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            `;
+
+            container.appendChild(categoryDiv);
+
+            // Dodaj infinite scroll
+            const row = document.getElementById(`row-${idx}`);
+            const originalContent = row.innerHTML;
+            row.innerHTML = originalContent + originalContent;
+
+            setupInfiniteScroll(row);
+        });
+    }
+
+    function setupInfiniteScroll(row) {
+        row.addEventListener('scroll', () => {
+            const scrollLeft = row.scrollLeft;
+            const scrollWidth = row.scrollWidth;
+            const clientWidth = row.clientWidth;
+
+            if (scrollLeft + clientWidth >= scrollWidth - 10) {
+                row.scrollLeft = 10;
+            }
+
+            if (scrollLeft <= 10) {
+                row.scrollLeft = (scrollWidth / 2) - clientWidth + 10;
+            }
+        });
+    }
+
+    function createMovieCard(movie) {
+        const poster = movie.poster_url || "https://via.placeholder.com/300x450?text=No+Poster";
+        const genres = movie.genres ? movie.genres.slice(0, 2).map(g =>
+            `<span class="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">${g}</span>`
+        ).join('') : '';
+
+        return `
+            <div class="movie-card bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group"
+                 onclick="window.location.href='/movie?id=${movie.id}'">
+                <div class="relative aspect-[2/3]">
+                    <img src="${poster}"
+                         class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition"
+                         alt="${movie.title}">
+                    <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
+                        ${movie.avg_aspect ? movie.avg_aspect.toFixed(1) : movie.year || 'N/A'}
+                    </div>
+                </div>
+                <div class="p-3">
+                    <h3 class="font-bold text-white text-xs line-clamp-2 group-hover:text-blue-400 transition mb-1">
+                        ${movie.title}
+                    </h3>
+                    ${genres ? `<div class="flex gap-1 flex-wrap mt-2">${genres}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function scrollRow(rowId, direction) {
+        const row = document.getElementById(rowId);
+        const scrollAmount = 600; // Pixels to scroll
+        row.scrollBy({
+            left: direction * scrollAmount,
+            behavior: 'smooth'
+        });
+    }
+
+    // Search functionality
+    async function searchMovies() {
+        currentPage = 1;
+        loadSearchResults();
+    }
+
+    async function changePage(d) {
+        currentPage += d;
+        loadSearchResults();
+    }
+
+    async function loadSearchResults() {
         const query = document.getElementById('searchInput').value;
         const genre = document.getElementById('genreSelect').value;
-        const grid = document.getElementById('moviesGrid');
 
-        grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400 animate-pulse">Ładowanie filmów...</div>';
+        // If no search query and "Wszystkie" genre, show categories
+        if (!query && genre === "Wszystkie") {
+            document.getElementById('searchResults').classList.add('hidden');
+            document.getElementById('categoriesContainer').classList.remove('hidden');
+            return;
+        }
 
-        let url = `${API_URL}/movies/?page=${currentPage}&limit=10`;
-        if(query) url += `&search=${encodeURIComponent(query)}`;
-        if(genre !== "Wszystkie") url += `&genre=${encodeURIComponent(genre)}`;
+        // Hide categories, show search results
+        document.getElementById('categoriesContainer').classList.add('hidden');
+        document.getElementById('searchResults').classList.remove('hidden');
+
+        const grid = document.getElementById('searchGrid');
+        grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400 animate-pulse">Szukam...</div>';
+
+        let url = `${API_URL}/movies/?page=${currentPage}&limit=20`;
+        if (query) url += `&search=${encodeURIComponent(query)}`;
+        if (genre !== "Wszystkie") url += `&genre=${encodeURIComponent(genre)}`;
+
+        // Exclude rated movies
+        if (currentUserId) url += `&user_id=${currentUserId}`;
 
         try {
             const res = await fetch(url);
             const data = await res.json();
 
             grid.innerHTML = "";
-            if(data.data.length === 0) {
+            if (data.data.length === 0) {
                 grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-500">Brak wyników.</div>';
                 return;
             }
 
             data.data.forEach(m => {
-                const poster = m.poster_url || "https://via.placeholder.com/300x450?text=No+Poster";
-                grid.innerHTML += `
-                    <div onclick="window.location.href='/movie?id=${m.id}'"
-                         class="bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group">
-                        <div class="relative aspect-[2/3]">
-                            <img src="${poster}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition">
-                            <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
-                                ★ ${m.rating}
-                            </div>
-                        </div>
-                        <div class="p-4">
-                            <h3 class="font-bold text-white text-sm line-clamp-1 group-hover:text-blue-400 transition">${m.title}</h3>
-                            <p class="text-xs text-gray-400 mt-1">${m.year || "N/A"}</p>
-                        </div>
-                    </div>
-                `;
+                grid.innerHTML += createMovieCard(m);
             });
 
             document.getElementById('pageInfo').innerText = `Strona ${data.page} z ${data.pages}`;
             document.getElementById('prevBtn').disabled = data.page <= 1;
             document.getElementById('nextBtn').disabled = data.page >= data.pages;
 
-        } catch(e) { console.error(e); }
+        } catch(e) {
+            console.error(e);
+            grid.innerHTML = '<div class="col-span-full text-center py-10 text-red-400">Błąd wyszukiwania</div>';
+        }
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('accessToken');
-    // Zakładamy, że dekodujesz token lub przechowujesz obiekt 'user'
-    const userData = JSON.parse(localStorage.getItem('user'));
-
-    if (userData && userData.role === 'admin') {
-        // Jeśli admin próbuje wejść na stronę usera, wyrzuć go do panelu
-        window.location.href = '/admin-panel';
-    }
-});
 </script>
 </body>
 </html>

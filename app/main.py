@@ -10,14 +10,13 @@ from app.database import Base, engine
 # Importujemy modele, aby SQLAlchemy utworzyło tabele
 from app.models import user, comment, movie, rating
 
-# --- POPRAWIONY IMPORT MODELU ML ---
-# Teraz importujemy z pliku app/ml/anfis_model.py, gdzie dodałeś funkcję load_anfis_model
+# --- IMPORT MODELU ML ---
 from app.ml.anfis_model import load_anfis_model
 
 # --- IMPORTY ROUTERÓW ---
-from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
-from app.routers import homepage
 
+from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings, homepage
+from app.routers import users
 # Tworzenie tabel w bazie (jeśli nie istnieją)
 Base.metadata.create_all(bind=engine)
 
@@ -59,6 +58,7 @@ app.include_router(comments.router)
 app.include_router(recommendations.router)
 app.include_router(ratings.router)
 app.include_router(homepage.router)
+app.include_router(users.router) # <--- DODANO ROUTER UŻYTKOWNIKÓW
 
 # --- WIDOKI HTML ---
 @app.get("/", response_class=HTMLResponse)
@@ -96,3 +96,8 @@ async def preferences_page(request: Request):
 @app.get("/my-recommendations", response_class=HTMLResponse)
 async def my_recommendations_page(request: Request):
     return templates.TemplateResponse("recommendations.html", {"request": request})
+
+# DODANO: Endpoint dla profilu
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    return templates.TemplateResponse("profile.html", {"request": request})

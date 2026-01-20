@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Mój Profil - System Rekomendacji</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            900: '#1a1a2e',
+                            800: '#16213e',
+                            700: '#0f3460'
+                        },
+                        accent: '#e94560'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+
+    <div id="navbar-placeholder"></div>
+
+    <div class="container mx-auto px-4 py-10 max-w-2xl">
+        <div class="bg-gray-800 rounded-lg shadow-xl p-8 border border-gray-700 mt-10">
+            <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-3xl font-bold text-blue-500">
+                    <i class="fas fa-user-cog mr-3"></i>Edycja Profilu
+                </h2>
+                <button onclick="window.location.href='/home'" class="text-gray-400 hover:text-white transition">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+
+            <div id="msg-box" class="hidden p-4 mb-6 rounded-lg text-center font-medium"></div>
+
+            <form id="profile-form" class="space-y-6">
+                <div>
+                    <label class="block text-gray-400 text-sm font-bold mb-2">Nazwa użytkownika</label>
+                    <input type="text" id="username" disabled 
+                        class="w-full p-3 rounded bg-gray-900 border border-gray-700 text-gray-500 cursor-not-allowed focus:outline-none">
+                    <p class="text-xs text-gray-500 mt-1">Nazwy użytkownika nie można zmienić.</p>
+                </div>
+
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2">Adres Email</label>
+                    <input type="email" id="email" 
+                        class="w-full p-3 rounded bg-gray-900 border border-gray-700 text-white focus:border-blue-500 focus:outline-none transition">
+                </div>
+
+                <hr class="border-gray-700 my-6">
+                <h3 class="text-xl font-semibold text-gray-300 mb-4">Zmiana hasła (opcjonalne)</h3>
+
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Nowe hasło</label>
+                    <input type="password" id="password" placeholder="Zostaw puste, jeśli nie zmieniasz"
+                        class="w-full p-3 rounded bg-gray-900 border border-gray-700 text-white focus:border-blue-500 focus:outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Potwierdź nowe hasło</label>
+                    <input type="password" id="confirm-password" placeholder="Powtórz nowe hasło"
+                        class="w-full p-3 rounded bg-gray-900 border border-gray-700 text-white focus:border-blue-500 focus:outline-none transition">
+                </div>
+
+                <div class="flex justify-between items-center mt-8 pt-4 border-t border-gray-700">
+                    <button type="button" onclick="window.location.href='/home'" class="text-gray-400 hover:text-white underline text-sm">
+                        Powrót
+                    </button>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded shadow-lg transform hover:scale-105 transition duration-300">
+                        Zapisz zmiany
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- NAPRAWA: Sprawdzamy obie możliwe nazwy tokenu ---
+        const token = localStorage.getItem('accessToken') || localStorage.getItem('access_token');
+        
+        // Jeśli nadal nie ma tokenu, przekieruj do logowania
+        if (!token) {
+            console.warn("Brak tokenu, przekierowanie...");
+            window.location.href = '/login';
+        }
+
+        const msgBox = document.getElementById('msg-box');
+
+        // 1. POBIERZ DANE UŻYTKOWNIKA PRZY STARCIE
+        async function fetchProfile() {
+            try {
+                const response = await fetch('/users/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) throw new Error("Błąd pobierania danych (może sesja wygasła?)");
+                
+                const user = await response.json();
+                document.getElementById('username').value = user.username;
+                document.getElementById('email').value = user.email || "";
+            } catch (err) {
+                console.error(err);
+                // Jeśli błąd autoryzacji, wyloguj
+                if (token) logout(); 
+            }
+        }
+
+        // 2. ZAPISZ ZMIANY
+        document.getElementById('profile-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            msgBox.classList.add('hidden');
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            // Walidacja hasła
+            if (password && password !== confirmPassword) {
+                showMsg("Hasła nie są identyczne!", "error");
+                return;
+            }
+
+            const payload = {};
+            if (email) payload.email = email;
+            if (password) payload.password = password;
+
+            try {
+                const response = await fetch('/users/me', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || "Błąd zapisu");
+                }
+
+                showMsg("Profil zaktualizowany pomyślnie!", "success");
+                
+                if (password) {
+                    document.getElementById('password').value = "";
+                    document.getElementById('confirm-password').value = "";
+                }
+
+            } catch (error) {
+                showMsg(error.message, "error");
+            }
+        });
+
+        function showMsg(text, type) {
+            msgBox.textContent = text;
+            msgBox.classList.remove('hidden', 'bg-red-900', 'text-red-300', 'bg-green-900', 'text-green-300');
+            if (type === 'error') {
+                msgBox.classList.add('bg-red-900', 'text-red-300');
+            } else {
+                msgBox.classList.add('bg-green-900', 'text-green-300');
+            }
+            msgBox.classList.remove('hidden');
+        }
+
+        function logout() {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+        }
+
+        // Uruchom pobieranie danych
+        if (token) fetchProfile();
+        
+        // Załaduj navbar (jeśli nie działa include z JInja2)
+        fetch('/home').then(r => r.text()).then(html => {
+             const parser = new DOMParser();
+             const doc = parser.parseFromString(html, 'text/html');
+             const nav = doc.querySelector('nav');
+             if(nav && document.getElementById('navbar-placeholder')) {
+                 document.getElementById('navbar-placeholder').appendChild(nav);
+                 // Ponownie uruchom skrypty navbara
+                 const scripts = nav.getElementsByTagName('script');
+                 for(let i=0; i<scripts.length; i++) {
+                     eval(scripts[i].innerText);
+                 }
+             }
+        }).catch(e => console.log("Navbar load skip (assuming Jinja include works)"));
+
+    </script>
+</body>
+</html>
