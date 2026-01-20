@@ -3,17 +3,20 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
+# UWAGA: Usunąłem błędny import "from app.models import User"
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(100), unique=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False) # Twoja nazwa kolumny
     role = Column(String(20), default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # --- RELACJE ---
+    # Używamy nazw w cudzysłowie ("Rating", "Comment"), żeby uniknąć problemów z importami
     ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
     preferences = relationship("UserPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -33,4 +36,5 @@ class UserPreference(Base):
 
     onboarding_completed = Column(Boolean, default=True)
     
+    # Relacja zwrotna
     user = relationship("User", back_populates="preferences")
