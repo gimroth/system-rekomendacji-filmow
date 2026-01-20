@@ -74,20 +74,9 @@
         }
 
         // OK - ładuj ranking
-        updateAuthUI();
         loadGenres();
         loadRankings();
     });
-
-    function updateAuthUI() {
-        const token = localStorage.getItem('accessToken');
-        const authSection = document.getElementById('auth-section');
-        if (token) {
-            authSection.innerHTML = `<button onclick="logout()" class="text-gray-400 hover:text-white text-sm font-semibold transition">Wyloguj</button>`;
-        } else {
-            authSection.innerHTML = `<a href="/login" class="text-blue-400 hover:text-blue-300 text-sm font-bold">Zaloguj się</a>`;
-        }
-    }
 
     function logout() {
         localStorage.removeItem('accessToken');
