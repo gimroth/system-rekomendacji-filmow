@@ -51,6 +51,29 @@
     const API_URL = "http://127.0.0.1:8000";
 
     document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('accessToken');
+        const userData = localStorage.getItem('user');
+        const onboardingCompleted = localStorage.getItem('onboarding_completed');
+
+        // Check admin
+        if (userData) {
+            try {
+                const user = JSON.parse(userData);
+            if (user.role === 'admin') {
+                window.location.href = '/admin-panel';
+                return;
+            }
+        } catch (e) {}
+        }
+
+        // GUARD: Zalogowany bez preferencji -> onboarding
+        if (token && onboardingCompleted !== 'true') {
+            alert('Najpierw uzupełnij swoje preferencje filmowe!');
+            window.location.href = '/onboarding';
+            return;
+        }
+
+        // OK - ładuj ranking
         updateAuthUI();
         loadGenres();
         loadRankings();
@@ -143,17 +166,6 @@
 
         } catch(e) { console.error(e); list.innerHTML = '<div class="p-4 text-center text-red-400">Błąd ładowania.</div>'; }
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('accessToken');
-    // Zakładamy, że dekodujesz token lub przechowujesz obiekt 'user'
-    const userData = JSON.parse(localStorage.getItem('user'));
-
-    if (userData && userData.role === 'admin') {
-        // Jeśli admin próbuje wejść na stronę usera, wyrzuć go do panelu
-        window.location.href = '/admin-panel';
-    }
-});
 </script>
 </body>
 </html>
