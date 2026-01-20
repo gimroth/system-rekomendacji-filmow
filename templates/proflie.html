@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Mój Profil</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>body { background-color: #1a1a1a; color: #fff; font-family: sans-serif; }</style>
+</head>
+<body class="min-h-screen">
+
+    {% include "navbar.html" %}
+
+    <div class="container mx-auto px-4 py-10 max-w-5xl">
+        <div class="bg-gray-800 rounded-xl p-8 mb-8 flex items-center gap-6 border border-gray-700">
+            <div class="bg-blue-600 w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold">
+                {{ user.username[0] | upper }}
+            </div>
+            <div>
+                <h1 class="text-3xl font-bold">{{ user.username }}</h1>
+                <p class="text-gray-400">{{ user.email }}</p>
+            </div>
+        </div>
+
+        <div class="flex gap-4 mb-6 border-b border-gray-700 pb-2">
+            <button onclick="showTab('ratings')" class="px-4 py-2 text-blue-400 font-bold border-b-2 border-blue-400">Twoje Oceny</button>
+            <button onclick="showTab('settings')" class="px-4 py-2 text-gray-400 hover:text-white">Ustawienia</button>
+        </div>
+
+        <div id="tab-ratings">
+            <div id="ratings-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <p>Ładowanie...</p>
+            </div>
+        </div>
+
+        <div id="tab-settings" class="hidden grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="bg-gray-800 p-6 rounded border border-gray-700">
+                <h3 class="text-xl font-bold mb-4">Edytuj Dane</h3>
+                <form onsubmit="updateData(event)">
+                    <label class="block text-gray-400 text-sm mb-1">Email</label>
+                    <input type="email" id="edit-email" value="{{ user.email }}" class="w-full bg-gray-700 p-2 rounded mb-4 text-white">
+                    <button class="bg-blue-600 px-4 py-2 rounded text-white w-full hover:bg-blue-700">Zapisz</button>
+                </form>
+            </div>
+            <div class="bg-gray-800 p-6 rounded border border-gray-700">
+                <h3 class="text-xl font-bold mb-4">Zmiana Hasła</h3>
+                <form onsubmit="changePass(event)">
+                    <input type="password" id="old-pass" placeholder="Stare hasło" class="w-full bg-gray-700 p-2 rounded mb-2 text-white">
+                    <input type="password" id="new-pass" placeholder="Nowe hasło" class="w-full bg-gray-700 p-2 rounded mb-4 text-white">
+                    <button class="bg-green-600 px-4 py-2 rounded text-white w-full hover:bg-green-700">Zmień hasło</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const USER_ID = {{ user.id }};
+
+        function showTab(tab) {
+            document.getElementById('tab-ratings').classList.toggle('hidden', tab !== 'ratings');
+            document.getElementById('tab-settings').classList.toggle('hidden', tab !== 'settings');
+        }
+
+        async function loadRatings() {
+            const res = await fetch(`/api/user-ratings/${USER_ID}`);
+            const data = await res.json();
+            const list = document.getElementById('ratings-list');
+            
+            if(data.length === 0) list.innerHTML = "<p class='text-gray-500'>Brak ocenionych filmów.</p>";
+            else list.innerHTML = data.map(r => `
+                <div class="bg-gray-800 p-3 rounded flex gap-4 items-center hover:bg-gray-750 transition">
+                    <img src="${r.poster_url}" class="w-12 h-16 object-cover rounded">
+                    <div>
+                        <a href="/movie/${r.movie_id}" class="font-bold text-lg hover:underline">${r.movie_title}</a>
+                        <div class="text-yellow-400"><i class="fas fa-star"></i> ${r.rating}</div>
+                        <div class="text-gray-500 text-xs">${r.timestamp}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function updateData(e) {
+            e.preventDefault();
+            const email = document.getElementById('edit-email').value;
+            const res = await fetch('/api/profile/update', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: USER_ID, new_username: "{{ user.username }}", new_email: email })
+            });
+            if(res.ok) { alert("Zapisano!"); location.reload(); }
+            else alert("Błąd zapisu (może email zajęty?)");
+        }
+
+        async function changePass(e) {
+            e.preventDefault();
+            const oldP = document.getElementById('old-pass').value;
+            const newP = document.getElementById('new-pass').value;
+            const res = await fetch('/api/profile/password', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: USER_ID, old_password: oldP, new_password: newP })
+            });
+            if(res.ok) { alert("Hasło zmienione!"); e.target.reset(); }
+            else { const err = await res.json(); alert("Błąd: " + err.detail); }
+        }
+
+        loadRatings();
+    </script>
+</body>
+</html>

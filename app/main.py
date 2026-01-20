@@ -1,33 +1,27 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 
 # --- IMPORTY BAZY DANYCH ---
 from app.database import Base, engine
-# Importujemy modele, aby SQLAlchemy utworzyło tabele
 from app.models import user, comment, movie, rating
 
-# --- POPRAWIONY IMPORT MODELU ML ---
-# Teraz importujemy z pliku app/ml/anfis_model.py, gdzie dodałeś funkcję load_anfis_model
+# --- IMPORT MODELU ML ---
 from app.ml.anfis_model import load_anfis_model
 
 # --- IMPORTY ROUTERÓW ---
 from app.routers import auth, admin, preferences, movies, comments, recommendations, ratings
 from app.routers import homepage
 
-# Tworzenie tabel w bazie (jeśli nie istnieją)
+# Tworzenie tabel w bazie
 Base.metadata.create_all(bind=engine)
 
-# --- CYKL ŻYCIA APLIKACJI (LIFESPAN) ---
+# --- CYKL ŻYCIA APLIKACJI ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Kod uruchamiany przy starcie serwera
     load_anfis_model() 
     yield
-    # Kod uruchamiany przy zamknięciu (opcjonalnie)
 
 # --- INICJALIZACJA APLIKACJI ---
 app = FastAPI(
@@ -47,52 +41,21 @@ app.add_middleware(
 # Obsługa plików statycznych
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Konfiguracja szablonów
-templates = Jinja2Templates(directory="templates")
-
 # --- PODPINANIE ROUTERÓW API ---
-app.include_router(auth.router)
-app.include_router(admin.router)
-app.include_router(preferences.router)
-app.include_router(movies.router)
-app.include_router(comments.router)
-app.include_router(recommendations.router)
-app.include_router(ratings.router)
+
+# 1. AUTH - KLUCZOWA POPRAWKA: prefix="/auth"
+# To sprawia, że adres logowania to: http://127.0.0.1:8000/auth/token
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+
+# 2. Reszta routerów API
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
+app.include_router(preferences.router, prefix="/preferences", tags=["preferences"])
+app.include_router(movies.router, prefix="/movies", tags=["movies"])
+app.include_router(comments.router, prefix="/comments", tags=["comments"])
+app.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
+app.include_router(ratings.router, prefix="/ratings", tags=["ratings"])
+
+# 3. HOMEPAGE - Obsługa HTML (Login, Register, Profil, Home)
+# Ten router musi być podpięty, bo w nim jest logika profilu użytkownika
 app.include_router(homepage.router)
 
-# --- WIDOKI HTML ---
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/home", response_class=HTMLResponse)
-async def home_page(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
-
-@app.get("/rankings", response_class=HTMLResponse)
-async def rankings_page(request: Request):
-    return templates.TemplateResponse("rankings.html", {"request": request})
-
-@app.get("/movie", response_class=HTMLResponse)
-async def movie_detail_page(request: Request):
-    return templates.TemplateResponse("movie.html", {"request": request})
-
-@app.get("/admin-panel", response_class=HTMLResponse)
-async def admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
-
-@app.get("/onboarding", response_class=HTMLResponse)
-async def preferences_page(request: Request):
-    return templates.TemplateResponse("preferences.html", {"request": request})
-
-@app.get("/my-recommendations", response_class=HTMLResponse)
-async def my_recommendations_page(request: Request):
-    return templates.TemplateResponse("recommendations.html", {"request": request})
