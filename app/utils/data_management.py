@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from pydantic_settings import BaseSettings
-
+from passlib.context import CryptContext
 # -----------------------------------------
 # 1. KONFIGURACJA
 # -----------------------------------------
 load_dotenv()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
 
 class Settings(BaseSettings):
     """Wczytuje klucz API z pliku .env."""
@@ -29,7 +32,7 @@ IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
 
 # Parametry Równoległości - ZREDUKOWANO dla TMDB rate limiting
 CONCURRENCY_LIMIT = 10  # Bezpieczny limit dla TMDB (40-50 requestów/10s)
-BATCH_SIZE = 500  # Wielkość batcha do przetwarzania
+BATCH_SIZE = 1000  # Wielkość batcha do przetwarzania
 DELAY_BETWEEN_BATCHES = 2  # Przerwa między batchami w sekundach
 
 # -----------------------------------------
@@ -40,7 +43,9 @@ try:
     from app.models.movie import Movie
     from app.models.genre import Genre, MovieGenre
     from app.models.rating import Rating
-    from app.models.user import User
+    from app.models.user import User, UserPreference
+    from app.models.user_preferred_genre import UserPreferredGenre
+    from app.models.comment import Comment
 except ImportError as e:
     print(f"BŁĄD IMPORTU MODELI/BAZY: {e}")
     exit()
@@ -116,7 +121,7 @@ def create_placeholder_users(session: Session, ratings_df: pd.DataFrame):
     unique_user_ids = ratings_df['userId'].unique()
 
     # Batch insert dla optymalizacji
-    batch_size = 10000
+    batch_size = 50000
     for i in range(0, len(unique_user_ids), batch_size):
         batch = unique_user_ids[i:i + batch_size]
         user_objs = []
@@ -146,6 +151,29 @@ def create_placeholder_users(session: Session, ratings_df: pd.DataFrame):
 
     print(f"✅ Dodano {len(unique_user_ids)} użytkowników z CSV ocen.")
 
+
+def create_admin_user(session):
+    admin = session.query(User).filter_by(email="admin@example.com").first()
+    if admin:
+        print("✅ Admin już istnieje.")
+        return
+
+    try:
+        # Pamiętaj o tej linii naprawiającej licznik ID!
+        session.execute(text("SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));"))
+
+        admin = User(
+            username="admin",
+            email="admin@example.com",
+            password_hash=get_password_hash("password123"),  # Teraz używa bcrypt
+            role="admin"
+        )
+        session.add(admin)
+        session.commit()
+        print("👑 Admin utworzony z hasłem w formacie BCRYPT!")
+    except Exception as e:
+        session.rollback()
+        print(f"⚠️ Błąd: {e}")
 
 # =====================================================================
 #   ETAP 1 — IMPORT CSV (Z POPRAWKAMI INTEGRALNOŚCI I TYPÓW)
@@ -517,37 +545,31 @@ def enrich_data_with_tmdb():
 
 def run_data_pipeline():
     """Główna funkcja do zarządzania danymi."""
-
-    print("\n" + "=" * 50)
-    print("=== INICJALIZACJA BAZY ===")
-    print("=" * 50)
+    # 1. Przygotowanie bazy
     initialize_database()
-
-    print("\n" + "=" * 50)
-    print("=== CZYSZCZENIE BAZY PRZED IMPORTEM ===")
-    print("=" * 50)
     clear_database()
 
-    # FAZA 1: IMPORT CSV
-    print("\n" + "=" * 50)
-    print("=== FAZA 1: IMPORT CSV ===")
-    print("=" * 50)
-
+    # 2. Sesja dla Fazy 1
     session = SessionLocal()
     try:
+        # NAJPIERW: Ładujemy tysiące rekordów z plików
         import_csv_data(session)
         session.commit()
-        print("\n✅ FAZA 1 zakończona pomyślnie")
+        print("\n✅ Dane z CSV zaimportowane.")
+
+        # NA KOŃCU: Dodajemy Twoje konto specjalne
+        print("\n--- TWORZENIE KONTA ADMINISTRATORA ---")
+        create_admin_user(session)
+
     except Exception as e:
         session.rollback()
-        print(f"\n❌ BŁĄD KRYTYCZNY W TRAKCIE IMPORTU CSV: {e}")
+        print(f"❌ Wystąpił błąd: {e}")
         import traceback
         traceback.print_exc()
-        return
     finally:
         session.close()
 
-    # FAZA 2: WZBOGACANIE TMDB
+    # 3. Faza 2: TMDB (wykonywana po zamknięciu sesji importu)
     try:
         enrich_data_with_tmdb()
         print("\n✅ FAZA 2 zakończona pomyślnie")
