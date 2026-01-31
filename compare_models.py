@@ -19,10 +19,17 @@ from glob import glob
 # KROK 1: Autowykrywanie najnowszych raportów
 # =============================================================================
 def get_latest_report(pattern):
-    folders = sorted(glob(pattern), reverse=True)
-    if not folders: return None
-    path = os.path.join(folders[0], 'training_report.txt')
-    return path if os.path.exists(path) else None
+    # Robust search: find any matching folders that contain training_report.txt
+    candidates = []
+    for d in glob(pattern):
+        report = os.path.join(d, 'training_report.txt')
+        if os.path.exists(report):
+            candidates.append((os.path.getmtime(report), report))
+    if not candidates:
+        return None
+    # return the most recently modified report
+    candidates.sort(reverse=True)
+    return candidates[0][1]
 
 ANFIS_REPORT = get_latest_report("results_anfis_match_*")
 MLP_REPORT = get_latest_report("results_mlp_*")

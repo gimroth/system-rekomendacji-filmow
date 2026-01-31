@@ -48,7 +48,8 @@ def complete_onboarding(
         weight_visuals=prefs.weight_visuals,
         weight_sound=prefs.weight_sound,
         weight_direction=prefs.weight_direction,
-        onboarding_completed=True
+        onboarding_completed=True,
+        preferred_genres=','.join(prefs.preferred_genres) if prefs.preferred_genres else ''
     )
     db.add(db_prefs)
 

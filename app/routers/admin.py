@@ -294,6 +294,29 @@ def get_ml_metrics(admin: User = Depends(get_current_admin)):
         improvement_match = re.search(r"MLP jest o ([\d.]+)% dokładniejszy", content)
         improvement_pct = float(improvement_match.group(1)) if improvement_match else 0.0
 
+        # Spróbuj wczytać R2 z comparison_table.csv jeśli dostępne
+        r2_anfis = None
+        r2_mlp = None
+        csv_path = os.path.join(latest_dir, 'comparison_table.csv')
+        if os.path.exists(csv_path):
+            try:
+                import csv
+                with open(csv_path, 'r', encoding='utf-8') as cf:
+                    reader = csv.reader(cf)
+                    for row in reader:
+                        if not row: continue
+                        key = row[0].strip().lower()
+                        if 'r2' in key or 'r^2' in key:
+                            # Expect format: R2,anfis,mlp,...
+                            try:
+                                r2_anfis = float(row[1])
+                                r2_mlp = float(row[2])
+                            except Exception:
+                                pass
+                            break
+            except Exception:
+                pass
+
         # Parsuj datę
         date_match = re.search(r"Data:\s+([\d-]+\s+[\d:]+)", content)
         comparison_date = date_match.group(1) if date_match else "Unknown"
@@ -309,19 +332,27 @@ def get_ml_metrics(admin: User = Depends(get_current_admin)):
             else:
                 return "POOR"
 
-        # Sprawdź czy model jest załadowany
-        model_loaded = os.path.exists("app/ml/models/anfis_latest.pkl")
+        # Sprawdź czy model jest załadowany (.pt preferowany, .pkl fallback)
+        model_path = None
+        pt_path = "app/ml/models/anfis_pytorch_latest.pt"
+        pkl_path = "app/ml/models/anfis_latest.pkl"
+        if os.path.exists(pt_path):
+            model_path = pt_path
+        elif os.path.exists(pkl_path):
+            model_path = pkl_path
 
         return {
             "status": "success",
             "anfis": {
                 "mae": round(anfis_mae, 2),
                 "rmse": round(anfis_rmse, 2),
+                "r2": round(r2_anfis, 3) if r2_anfis is not None else None,
                 "quality": get_quality(anfis_mae)
             },
             "mlp": {
                 "mae": round(mlp_mae, 2),
                 "rmse": round(mlp_rmse, 2),
+                "r2": round(r2_mlp, 3) if r2_mlp is not None else None,
                 "quality": get_quality(mlp_mae)
             },
             "comparison": {
@@ -332,8 +363,8 @@ def get_ml_metrics(admin: User = Depends(get_current_admin)):
                 "date": comparison_date
             },
             "model": {
-                "loaded": model_loaded,
-                "path": "anfis_latest.pkl"
+                "loaded": bool(model_path),
+                "path": model_path or "N/A"
             }
         }
 
@@ -364,3 +395,157 @@ def get_ml_metrics(admin: User = Depends(get_current_admin)):
             "comparison": {"winner": "N/A", "improvement_pct": 0.0},
             "model": {"loaded": False}
         }
+
+
+@router.get("/anfis/explain")
+def explain_anfis(
+    user_id: Optional[int] = None,
+    movie_id: Optional[int] = None,
+    match1: Optional[float] = None,
+    match2: Optional[float] = None,
+    match3: Optional[float] = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Return per-input MF degrees, per-rule firing strengths, normalized weights,
+    consequents (if available) and per-rule contributions for a single sample.
+
+    Provide either `user_id`+`movie_id` (uses DataProcessor smart features) or
+    direct `match1,match2,match3` values in 0-1.
+    """
+    from app.ml import loader
+    from app.ml.data_processor import DataProcessor
+    import numpy as np
+
+    # Build features dict
+    features = {}
+    dp = DataProcessor(db)
+    if user_id is not None and movie_id is not None:
+        user_feats, top3, source = dp.get_smart_user_features(user_id)
+        movie_feats = dp.get_movie_input_for_anfis(movie_id, top3)
+        # map movie_feats (m_story...) to match1..3 according to top3 order
+        for i, key in enumerate(top3):
+            features[f'match{i+1}'] = float(movie_feats.get(f'm_{key}', 0.5))
+    else:
+        # use direct values (fallback to 0.5)
+        features['match1'] = float(match1) if match1 is not None else 0.5
+        features['match2'] = float(match2) if match2 is not None else 0.5
+        features['match3'] = float(match3) if match3 is not None else 0.5
+
+    model = loader.get_model()
+    raw = loader.get_raw_model()
+
+    if model is None or raw is None:
+        raise HTTPException(status_code=404, detail='No ANFIS model loaded')
+
+    # If raw is PyTorchANFIS
+    explain = {
+        'features': features,
+        'model_type': type(raw).__name__,
+        'membership': {},
+        'rule_labels': None,
+        'firing': None,
+        'weights': None,
+        'consequents': None,
+        'per_rule_contribution': None,
+        'prediction': None
+    }
+
+    try:
+        # PyTorch model
+        from app.ml.anfis_pytorch import PyTorchANFIS
+        if isinstance(raw, PyTorchANFIS):
+            # prepare numpy input
+            arr = np.array([[features.get('match1', 0.5), features.get('match2', 0.5), features.get('match3', 0.5)]], dtype=np.float32)
+            import torch
+            raw.eval()
+            with torch.no_grad():
+                t = torch.from_numpy(arr)
+                out, info = raw.forward(t)
+                firing = info.get('firing').cpu().numpy().tolist()[0]
+                weights = info.get('weights').cpu().numpy().tolist()[0]
+                consequents = raw.consequents.detach().cpu().numpy().tolist() if hasattr(raw, 'consequents') else None
+                contrib = None
+                if consequents is not None:
+                    contrib = [w * c for w, c in zip(weights, consequents)]
+
+                explain.update({
+                    'firing': firing,
+                    'weights': weights,
+                    'consequents': consequents,
+                    'per_rule_contribution': contrib,
+                    'prediction': float(out.cpu().numpy().ravel()[0])
+                })
+
+                # membership degrees per input-term
+                # compute gaussian mf values using centers/sigmas
+                membership = {}
+                centers = raw.centers.detach().cpu().numpy()
+                sigmas = np.exp(raw.log_sigmas.detach().cpu().numpy())
+                for i, mname in enumerate(['match1', 'match2', 'match3']):
+                    vals = []
+                    x = features.get(mname, 0.5)
+                    for j in range(raw.n_mfs):
+                        c = centers[i, j]
+                        s = sigmas[i, j]
+                        deg = float(np.exp(-0.5 * ((x - c) / (s + 1e-8)) ** 2))
+                        vals.append({'term': f'mf{j}', 'degree': deg, 'center': float(c), 'sigma': float(s)})
+                    membership[mname] = vals
+
+                explain['membership'] = membership
+                # create rule labels from combinations
+                rule_labels = []
+                for comb in raw.rule_combinations:
+                    rule_labels.append(tuple([f'mf{idx}' for idx in comb]))
+                explain['rule_labels'] = rule_labels
+
+                return explain
+
+    except Exception:
+        pass
+
+    # Else assume legacy ANFISRecommender
+    try:
+        from app.ml.anfis_model import ANFISRecommender
+        if isinstance(raw, ANFISRecommender):
+            # membership per input-term
+            membership = {}
+            for name in raw.aspect_names:
+                terms = list(raw.input_variables[name].terms)
+                vals = []
+                for term in terms:
+                    deg = float(raw._sample_membership(name, term, features.get(name, 0.5)))
+                    vals.append({'term': term, 'degree': deg})
+                membership[name] = vals
+
+            # compute firing per rule
+            F = raw._compute_firing_matrix([features])  # shape (1, n_rules)
+            firing = F[0].tolist()
+            s = sum(firing) if sum(firing) > 0 else 1e-8
+            weights = (F[0] / s).tolist()
+            consequents = raw.consequents.tolist() if raw.consequents is not None else None
+            contrib = None
+            if consequents is not None:
+                contrib = [(w * c) for w, c in zip(weights, consequents)]
+            prediction = None
+            if consequents is not None:
+                prediction = float(np.dot(weights, consequents))
+            else:
+                # fallback predict
+                prediction = float(model.predict(features))
+
+            explain.update({
+                'membership': membership,
+                'rule_labels': raw.rule_labels,
+                'firing': firing,
+                'weights': weights,
+                'consequents': consequents,
+                'per_rule_contribution': contrib,
+                'prediction': prediction
+            })
+            return explain
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Explain failed: {e}')
+
+    raise HTTPException(status_code=500, detail='Unsupported model type for explainability')

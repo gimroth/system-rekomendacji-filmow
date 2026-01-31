@@ -159,7 +159,7 @@
         }
     }
 
-    // Strażnik wejścia (Logika Nadii + poprawki bezpieczeństwa)
+    // Strażnik wejścia (bez automatycznego przekierowania do onboarding przy wygaśniętej sesji)
     document.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('accessToken');
     const userData = localStorage.getItem('user');
@@ -167,16 +167,20 @@
     if (token && userData) {
         try {
             const user = JSON.parse(userData);
-            if (user.role === 'admin') {
+            // Jeśli mamy aktywny komplet informacji i onboarding jest ukończony,
+            // możemy bezpiecznie przekierować użytkownika. W przeciwnym razie
+            // czyścimy lokalne dane i pozostajemy na stronie logowania, żeby
+            // użytkownik mógł się ponownie zalogować (zapobiega zapętlaniu).
+            const onboardingCompleted = localStorage.getItem('onboarding_completed');
+            if (user.role === 'admin' && onboardingCompleted === 'true') {
                 window.location.href = '/admin-panel';
+            } else if (onboardingCompleted === 'true') {
+                window.location.href = '/home';
             } else {
-                // Sprawdź localStorage
-                const onboardingCompleted = localStorage.getItem('onboarding_completed');
-                if (onboardingCompleted !== 'true') {
-                    window.location.href = '/onboarding';
-                } else {
-                    window.location.href = '/home';
-                }
+                // Najbezpieczniejsze zachowanie: wyczyść niepewne/wygaśnięte dane
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('user');
+                // Nie usuwamy onboarding_completed, bo może być użyteczne po re-loginie
             }
         } catch (e) {
             localStorage.clear();

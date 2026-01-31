@@ -4,6 +4,8 @@ from sqlalchemy import func, not_, text
 from typing import List, Optional, Union
 import pickle
 import os
+import torch
+from app.ml.anfis_pytorch import PyTorchANFIS
 
 from app.database import get_db
 from app.models import User, Movie, Rating, Genre
@@ -14,35 +16,26 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 # =============================================================================
-# Wczytaj model ANFIS
+# Wczytaj model ANFIS (central loader)
 # =============================================================================
 
-ANFIS_MODEL_PATH = "app/ml/models/anfis_latest.pkl"
 anfis_model = None
-
-def load_models():
-    global anfis_model
-    paths_to_check = [
-        "app/ml/models/anfis_latest.pkl",
-        os.path.join(os.path.dirname(__file__), "..", "ml", "models", "anfis_latest.pkl")
-    ]
-    
-    loaded = False
-    for path in paths_to_check:
-        if os.path.exists(path):
-            try:
-                with open(path, 'rb') as f:
-                    anfis_model = pickle.load(f)
-                print(f"✅ ANFIS loaded from {path}")
-                loaded = True
-                break
-            except Exception as e:
-                print(f"⚠️ Failed to load ANFIS from {path}: {e}")
-    
-    if not loaded:
-        print(f"⚠️ ANFIS not found. Checked paths: {paths_to_check}")
-
-load_models()
+try:
+    # central loader may have been invoked at app startup; get reference
+    load_model = None
+    from app.ml.loader import get_model, load_model
+    try:
+        # ensure loader attempted to load (harmless if already loaded)
+        load_model()
+    except Exception:
+        pass
+    anfis_model = get_model()
+    if anfis_model is None:
+        print('No ANFIS model loaded (central loader returned None)')
+    else:
+        print('ANFIS model is ready (from central loader)')
+except Exception as e:
+    print(f'Failed to initialize central ANFIS loader: {e}')
 
 # =============================================================================
 # Schemas
@@ -99,8 +92,15 @@ async def get_recommendations(
             raise HTTPException(status_code=404, detail="Użytkownik nie istnieje")
 
     # Sprawdzenie modelu
+    global anfis_model
     if not anfis_model:
-        load_models()
+        try:
+            from app.ml.loader import get_model, load_model
+            load_model()
+            anfis_model = get_model()
+        except Exception as e:
+            print(f"[ERROR] Could not reload ANFIS model: {e}")
+            raise HTTPException(status_code=500, detail="Nie można załadować modelu ANFIS.")
 
     # Policz oceny
     ratings_count = db.query(func.count(Rating.id)).filter(Rating.user_id == real_user_id).scalar()

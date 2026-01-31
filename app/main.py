@@ -11,7 +11,7 @@ from app.database import Base, engine
 from app.models import user, comment, movie, rating
 
 # --- IMPORT MODELU ML ---
-from app.ml.anfis_model import load_anfis_model
+from app.ml.loader import load_model
 
 # --- IMPORTY ROUTERÓW ---
 
@@ -24,7 +24,7 @@ Base.metadata.create_all(bind=engine)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Kod uruchamiany przy starcie serwera
-    load_anfis_model() 
+    load_model()
     yield
     # Kod uruchamiany przy zamknięciu (opcjonalnie)
 

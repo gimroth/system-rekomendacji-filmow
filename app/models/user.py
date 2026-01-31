@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, CheckConstraint, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -32,5 +32,9 @@ class UserPreference(Base):
     weight_direction = Column(Integer, CheckConstraint('weight_direction BETWEEN 1 AND 5'), nullable=False)
 
     onboarding_completed = Column(Boolean, default=True)
+    # Backwards-compatible column: some databases (older installs) may have
+    # stored preferred genres directly on the preferences row. Keep a
+    # nullable-safe text column so inserts won't fail if the DB expects it.
+    preferred_genres = Column(Text, nullable=False, default='')
     
     user = relationship("User", back_populates="preferences")

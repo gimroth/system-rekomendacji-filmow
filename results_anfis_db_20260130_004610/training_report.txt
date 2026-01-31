@@ -1,0 +1,1 @@
+{'rmse': 0.0734797309652812, 'mae': 0.055600725792493, 'r2': 0.9201881616743517, 'model_path': 'app\\ml\\models\\mlp_results_anfis_db_20260130_004610_20260130_004639.pkl', 'results_dir': 'results_anfis_db_20260130_004610'}

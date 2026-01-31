@@ -138,6 +138,7 @@
                             <div>
                                 <p class="text-xs text-slate-500 uppercase tracking-wider">RMSE</p>
                                 <p class="text-2xl font-bold text-slate-300"><span id="anfis-rmse">-</span>⭐</p>
+                                <p class="text-xs text-slate-400 mt-1">R²: <span id="anfis-r2">-</span></p>
                             </div>
                         </div>
                     </div>
@@ -156,6 +157,7 @@
                             <div>
                                 <p class="text-xs text-slate-500 uppercase tracking-wider">RMSE</p>
                                 <p class="text-2xl font-bold text-slate-300"><span id="mlp-rmse">-</span>⭐</p>
+                                <p class="text-xs text-slate-400 mt-1">R²: <span id="mlp-r2">-</span></p>
                             </div>
                         </div>
                     </div>
@@ -184,6 +186,13 @@
                     <h3 class="text-xl font-bold text-white mb-6">Porównanie Metryk</h3>
                     <div class="w-full" style="height: 400px;">
                         <canvas id="mlChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                    <h3 class="text-xl font-bold text-white mb-6">Porównanie R²</h3>
+                    <div class="w-full" style="height: 200px;">
+                        <canvas id="r2Chart"></canvas>
                     </div>
                 </div>
 
@@ -479,6 +488,7 @@
     // ===================================================================
 
     let mlChart = null;  // Global chart instance
+    let r2Chart = null;  // R2 chart instance
 
     async function loadMLDashboard() {
         const loading = document.getElementById('ml-loading');
@@ -501,6 +511,7 @@
             // Renderuj dane
             renderMLMetrics(data);
             renderMLChart(data);
+            renderR2Chart(data);
 
         } catch(e) {
             console.error('Błąd ładowania ML metrics:', e);
@@ -528,6 +539,9 @@
         // MLP
         document.getElementById('mlp-mae').textContent = data.mlp.mae;
         document.getElementById('mlp-rmse').textContent = data.mlp.rmse;
+        // R2 displays (may be null)
+        document.getElementById('anfis-r2').textContent = (data.anfis.r2 !== null && data.anfis.r2 !== undefined) ? data.anfis.r2 : '-';
+        document.getElementById('mlp-r2').textContent = (data.mlp.r2 !== null && data.mlp.r2 !== undefined) ? data.mlp.r2 : '-';
 
         const mlpQuality = document.getElementById('mlp-quality');
         mlpQuality.textContent = data.mlp.quality;
@@ -647,6 +661,51 @@
                             display: false
                         }
                     }
+                }
+            }
+        });
+    }
+
+    function renderR2Chart(data) {
+        const ctx = document.getElementById('r2Chart');
+
+        // Destroy previous
+        if (r2Chart) r2Chart.destroy();
+
+        const anfisR2 = (data.anfis.r2 !== null && data.anfis.r2 !== undefined) ? data.anfis.r2 : 0;
+        const mlpR2 = (data.mlp.r2 !== null && data.mlp.r2 !== undefined) ? data.mlp.r2 : 0;
+
+        r2Chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['R²'],
+                datasets: [
+                    {
+                        label: 'ANFIS',
+                        data: [anfisR2],
+                        backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'MLP',
+                        data: [mlpR2],
+                        backgroundColor: 'rgba(168, 85, 247, 0.7)',
+                        borderColor: 'rgba(168, 85, 247, 1)',
+                        borderWidth: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#e2e8f0' } },
+                    title: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(71,85,105,0.2)' } },
+                    x: { ticks: { color: '#cbd5e1' } }
                 }
             }
         });
