@@ -1,11 +1,3 @@
-"""
-DataProcessor - wersja rozszerzona
-Łączy istniejące metody z inteligentnymi funkcjami dla cech i gatunków
-
-Autorzy: Nadia (oryginał), Emilia (rozszerzenia)
-Data: 2026-01-13
-"""
-
 import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
@@ -13,132 +5,61 @@ from sqlalchemy import select, func
 from app.models.rating import Rating
 from app.models.user import UserPreference
 
-
 class DataProcessor:
     def __init__(self, db: Session):
         self.db = db
 
-    # =========================================================================
-    # ISTNIEJĄCE METODY (od Nadii)
-    # =========================================================================
-
     def _get_top_3_aspect_names(self, weights_dict: dict):
-        """Wybiera 3 aspekty z najwyższymi wagami."""
-        top_3 = sorted(weights_dict, key=weights_dict.get, reverse=True)[:3]
-        return top_3
+        return sorted(weights_dict, key=weights_dict.get, reverse=True)[:3]
 
     def get_training_data(self):
-        """Pobiera i skaluje (0-1) dane do treningu modelu."""
-        query = (
-            select(
-                Rating.user_id,
-                Rating.movie_id,
-                Rating.story.label('m_story'),
-                Rating.acting.label('m_acting'),
-                Rating.visuals.label('m_visuals'),
-                Rating.sound.label('m_sound'),
-                Rating.direction.label('m_direction'),
-                Rating.rating.label('target')
-            )
+        """Bezpieczne, liniowe skalowanie bez potęgowania."""
+        query = select(
+            Rating.user_id, Rating.movie_id,
+            Rating.story.label('m_story'), Rating.acting.label('m_acting'),
+            Rating.visuals.label('m_visuals'), Rating.sound.label('m_sound'),
+            Rating.direction.label('m_direction'), Rating.rating.label('target')
         )
         results = self.db.execute(query).all()
-
-        if not results:
-            return pd.DataFrame()
+        if not results: return pd.DataFrame()
 
         df = pd.DataFrame(results)
-
-        cols_to_scale = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction', 'target']
-        for col in cols_to_scale:
-            # Skalowanie 1-5 na 0-1
-            df[col] = (df[col].astype(float) - 1) / 4
-            # Zabezpieczenie (clip) - to jest to co dodały dziewczyny, bardzo ważne!
-            df[col] = df[col].clip(lower=0, upper=1)
-
+        
+        # Skalujemy wszystko liniowo 0-1
+        cols = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction', 'target']
+        for col in cols:
+            df[col] = (df[col].astype(float) - 1.0) / 4.0
+            # Dodajemy mały margines, aby uniknąć czystego 0 i 1 (krytyczne dla ANFIS)
+            df[col] = df[col].clip(0.001, 0.999) 
+        
         return df
 
     def get_user_input_for_anfis(self, user_id: int):
-        """Przygotowuje wektor użytkownika i zwraca nazwy wybranych cech."""
+        """Przygotowuje profil użytkownika na podstawie ocen lub preferencji."""
         ratings_count = self.db.query(Rating).filter(Rating.user_id == user_id).count()
 
         if ratings_count < 5:
             pref = self.db.query(UserPreference).filter(UserPreference.user_id == user_id).first()
-            if not pref:
-                return None, []
-            weights = {
-                'story': pref.weight_story, 'acting': pref.weight_acting,
-                'visuals': pref.weight_visuals, 'sound': pref.weight_sound,
-                'direction': pref.weight_direction
-            }
+            if not pref: return None, []
+            weights = {'story': pref.weight_story, 'acting': pref.weight_acting, 'visuals': pref.weight_visuals, 'sound': pref.weight_sound, 'direction': pref.weight_direction}
         else:
-            avg = self.db.query(
-                func.avg(Rating.story), func.avg(Rating.acting),
-                func.avg(Rating.visuals), func.avg(Rating.sound),
-                func.avg(Rating.direction)
-            ).filter(Rating.user_id == user_id).first()
-            weights = {
-                'story': float(avg[0] or 3), 'acting': float(avg[1] or 3),
-                'visuals': float(avg[2] or 3), 'sound': float(avg[3] or 3),
-                'direction': float(avg[4] or 3)
-            }
+            avg = self.db.query(func.avg(Rating.story), func.avg(Rating.acting), func.avg(Rating.visuals), func.avg(Rating.sound), func.avg(Rating.direction)).filter(Rating.user_id == user_id).first()
+            weights = {'story': float(avg[0] or 3), 'acting': float(avg[1] or 3), 'visuals': float(avg[2] or 3), 'sound': float(avg[3] or 3), 'direction': float(avg[4] or 3)}
 
         top_3_keys = self._get_top_3_aspect_names(weights)
-
-        personalized_input = {}
-        for key in top_3_keys:
-            # Skalowanie 0-1
-            personalized_input[f'u_{key}'] = (float(weights[key]) - 1) / 4
-
+        personalized_input = {f'u_{key}': (float(weights[key]) - 1) / 4 for key in top_3_keys}
         return personalized_input, top_3_keys
 
     def get_movie_input_for_anfis(self, movie_id: int, top_3_keys: list):
-        """Pobiera dane filmu dla cech wybranych dla użytkownika."""
-        avg = self.db.query(
-            func.avg(Rating.story), func.avg(Rating.acting),
-            func.avg(Rating.visuals), func.avg(Rating.sound),
-            func.avg(Rating.direction)
-        ).filter(Rating.movie_id == movie_id).first()
-
-        all_aspects = {
-            'story': float(avg[0] or 3.0), 'acting': float(avg[1] or 3.0),
-            'visuals': float(avg[2] or 3.0), 'sound': float(avg[3] or 3.0),
-            'direction': float(avg[4] or 3.0)
-        }
-
-        movie_input = {}
-        for key in top_3_keys:
-            # Mapowanie na te same klucze co użytkownik, skala 0-1
-            movie_input[f'm_{key}'] = (all_aspects[key] - 1) / 4
-
-        return movie_input
-
-    # =========================================================================
-    # NOWE METODY: Inteligentne cechy + gatunki (Emilia)
-    # =========================================================================
+        avg = self.db.query(func.avg(Rating.story), func.avg(Rating.acting), func.avg(Rating.visuals), func.avg(Rating.sound), func.avg(Rating.direction)).filter(Rating.movie_id == movie_id).first()
+        all_aspects = {'story': float(avg[0] or 3.0), 'acting': float(avg[1] or 3.0), 'visuals': float(avg[2] or 3.0), 'sound': float(avg[3] or 3.0), 'direction': float(avg[4] or 3.0)}
+        return {f'm_{key}': (all_aspects[key] - 1) / 4 for key in top_3_keys}
 
     def get_smart_user_features(self, user_id: int):
-        """
-        Inteligentne pobieranie cech użytkownika.
+        pref = self.db.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+        ratings_count = self.db.query(func.count(Rating.id)).filter(Rating.user_id == user_id).scalar()
 
-        Logika:
-        - Priorytet 1: Formularz (jeśli wypełniony)
-        - Priorytet 2: Średnie z ocen (jeśli ≥5 ocen)
-        - Fallback: Domyślne wartości
-
-        Returns:
-            tuple: (user_features_dict, top_3_keys, source)
-                   source = 'form' | 'ratings' | 'default'
-        """
-        # Sprawdź formularz
-        pref = self.db.query(UserPreference).filter(
-            UserPreference.user_id == user_id
-        ).first()
-
-        ratings_count = self.db.query(func.count(Rating.id)).filter(
-            Rating.user_id == user_id
-        ).scalar()
-
-        # PRIORYTET 1: Formularz (jeśli wypełniony)
+        # PRIORYTET 1: Formularz (dodajemy BOOSTER)
         if pref and self._has_valid_preferences(pref):
             weights = {
                 'story': pref.weight_story,
@@ -147,38 +68,28 @@ class DataProcessor:
                 'sound': pref.weight_sound,
                 'direction': pref.weight_direction
             }
-            top_3_keys = self._get_top_3_aspect_names(weights)
+            top_3 = self._get_top_3_aspect_names(weights)
 
             user_features = {}
-            for key in top_3_keys:
-                user_features[f'u_{key}'] = (weights[key] - 1) / 4.0
+            for key in top_3:
+                # BOOSTER: Przesuwamy wagi z formularza w górę o 10%, 
+                # aby łatwiej wpadały w zakres "Bardzo Polecam" (max 1.0)
+                val_norm = (weights[key] - 1) / 4.0
+                user_features[f'u_{key}'] = min(1.0, val_norm * 1.1)
 
-            return user_features, top_3_keys, 'form'
-
-        # PRIORYTET 2: Średnie z ocen (jeśli ≥5)
+            return user_features, top_3, 'form'
         elif ratings_count >= 5:
-            ratings = self.db.query(Rating).filter(
-                Rating.user_id == user_id
-            ).all()
-
+            ratings = self.db.query(Rating).filter(Rating.user_id == user_id).all()
             weights = {}
             for aspect in ['story', 'acting', 'visuals', 'sound', 'direction']:
                 values = [getattr(r, aspect) for r in ratings if getattr(r, aspect)]
-                weights[aspect] = float(np.mean(values)) if values else 3.0
-
-            top_3_keys = self._get_top_3_aspect_names(weights)
-
-            user_features = {}
-            for key in top_3_keys:
-                user_features[f'u_{key}'] = (weights[key] - 1) / 4.0
-
-            return user_features, top_3_keys, 'ratings'
-
-        # FALLBACK: Domyślne
-        else:
-            default_keys = ['story', 'acting', 'direction']
-            user_features = {f'u_{k}': 0.6 for k in default_keys}
-            return user_features, default_keys, 'default'
+                if values:
+                    # Zamiast czystego np.mean, bierzemy 75-ty percentyl lub ważoną 
+                    # (daje to wagę bliższą Twoim najwyższym ocenom)
+                    weights[aspect] = float(np.percentile(values, 75)) 
+                else:
+                    weights[aspect] = 3.0
+        return {f'u_{k}': 0.6 for k in ['story', 'acting', 'direction']}, ['story', 'acting', 'direction'], 'default'
 
     def get_smart_user_genres(self, user_id: int):
         """

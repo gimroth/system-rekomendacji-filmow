@@ -14,11 +14,9 @@
 
     {% include "navbar.html" %}
 
-    <!-- HEADER Z PRZYCISKIEM WYRÓWNANYM -->
     <div class="max-w-7xl mx-auto mb-8 mt-4">
         <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <!-- Lewa strona: Tytuł + Message -->
                 <div>
                     <h1 class="text-3xl font-bold text-white mb-2">🎬 Dla Ciebie</h1>
                     <p id="modelMessage" class="text-blue-400 font-medium flex items-center gap-2">
@@ -27,7 +25,6 @@
                     </p>
                 </div>
 
-                <!-- Prawa strona: Przycisk WYRÓWNANY -->
                 <button id="refreshBtn"
                         onclick="refreshRecommendations()"
                         class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition flex items-center gap-2 whitespace-nowrap self-start md:self-center">
@@ -40,7 +37,6 @@
         </div>
     </div>
 
-    <!-- GRID FILMÓW (MAX 5 KOLUMN) -->
     <div id="recommendationsGrid" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         <div id="loading" class="col-span-full text-center py-20">
             <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -71,14 +67,11 @@
         const userData = localStorage.getItem('user');
         const onboardingCompleted = localStorage.getItem('onboarding_completed');
 
-        // Nie zalogowany -> login
         if (!token) {
-            alert('Musisz się zalogować, aby zobaczyć rekomendacje!');
             window.location.href = '/login?next=/my-recommendations';
             return;
         }
 
-        // Admin -> panel
         if (userData) {
             try {
                 const user = JSON.parse(userData);
@@ -89,201 +82,88 @@
             } catch (e) {}
         }
 
-        // Bez preferencji -> onboarding
         if (onboardingCompleted !== 'true') {
-            alert('Najpierw uzupełnij swoje preferencje filmowe!');
             window.location.href = '/onboarding';
             return;
         }
 
         initRecommendations();
-});
+    });
 
-    // FUNKCJA ODŚWIEŻANIA
     async function refreshRecommendations() {
         const token = localStorage.getItem('accessToken');
-        if (!token) return;
-
         const payload = parseJwt(token);
         const userId = payload?.sub || payload?.id || payload?.user_id;
-        if (!userId) return;
-
-        // Wyczyść cache
         const cacheKey = `recommendations_${userId}`;
         localStorage.removeItem(cacheKey);
         localStorage.removeItem(`${cacheKey}_time`);
-
-        console.log('🔄 Cache wyczyszczony, pobieranie nowych rekomendacji...');
-
-        // Pokaż loader
-        const grid = document.getElementById('recommendationsGrid');
-        grid.innerHTML = `
-            <div class="col-span-full text-center py-20">
-                <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                <p class="text-gray-400 font-medium">Obliczanie nowych rekomendacji...</p>
-            </div>
-        `;
-
-        // Pobierz nowe
-        await loadRecommendations(userId);
+        location.reload();
     }
 
     async function initRecommendations() {
         const grid = document.getElementById('recommendationsGrid');
         const token = localStorage.getItem('accessToken');
-
-        if (!token) {
-            grid.innerHTML = `<div class="col-span-full text-center p-10 bg-yellow-900/20 text-yellow-400 rounded-xl border border-yellow-500">
-                Nie znaleziono sesji. Zaloguj się ponownie.
-            </div>`;
-            return;
-        }
-
         const payload = parseJwt(token);
-        console.log("Token Payload:", payload);
-
         const userId = payload?.sub || payload?.id || payload?.user_id;
-
-        if (!userId) {
-            grid.innerHTML = `<div class="col-span-full text-center p-10 bg-red-900/20 text-red-400 rounded-xl border border-red-500">
-                Błąd sesji: Nie można odczytać ID użytkownika z tokena.
-            </div>`;
-            return;
-        }
-
-        console.log('🚀 Ładuję rekomendacje dla ID:', userId);
         await loadRecommendations(userId);
     }
 
     async function loadRecommendations(userId) {
         const grid = document.getElementById('recommendationsGrid');
         const messageEl = document.getElementById('modelMessage');
-
         try {
-            // ✅ SPRAWDŹ CACHE
-            const cacheKey = `recommendations_${userId}`;
-            const cachedData = localStorage.getItem(cacheKey);
-            const cacheTime = localStorage.getItem(`${cacheKey}_time`);
-
-            const CACHE_DURATION = 30 * 60 * 1000; // 30 minut
-            const now = Date.now();
-
-            // Jeśli jest cache i nie wygasł
-            if (cachedData && cacheTime && (now - parseInt(cacheTime)) < CACHE_DURATION) {
-                console.log('📦 Używam cache! (ważny przez', Math.round((CACHE_DURATION - (now - parseInt(cacheTime))) / 60000), 'minut)');
-                const data = JSON.parse(cachedData);
-
-                // ✅ BEZ "(z cache)" w message!
-                messageEl.innerHTML = `<span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span> ${data.message}`;
-                renderRecommendations(data, grid);
-                return;
-            }
-
-            // Cache wygasł - pobierz z API
-            console.log('🌐 Pobieranie z API...');
             const res = await fetch(`${API_URL}/recommendations/?user_id=${userId}&limit=${RECOMMENDATIONS_LIMIT}&exclude_rated=true`);
-
-            if(!res.ok) {
-                const errorData = await res.json().catch(() => ({ detail: "Błąd serwera (Model ANFIS)" }));
-                throw new Error(errorData.detail || `Błąd ${res.status}`);
-            }
-
             const data = await res.json();
-
-            // ✅ ZAPISZ DO CACHE
-            localStorage.setItem(cacheKey, JSON.stringify(data));
-            localStorage.setItem(`${cacheKey}_time`, now.toString());
-            console.log('💾 Zapisano do cache (ważny przez 30 minut)');
-
             messageEl.innerHTML = `<span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span> ${data.message}`;
-
             renderRecommendations(data, grid);
-
         } catch(e) {
-            console.error('❌ Błąd:', e);
-            grid.innerHTML = `
-                <div class="col-span-full text-center py-10 text-red-400 bg-red-900/10 rounded-xl border border-red-900/50">
-                    <p class="font-bold">Wystąpił błąd podczas generowania rekomendacji</p>
-                    <p class="text-sm text-gray-400">${e.message}</p>
-                    <p class="text-xs text-gray-500 mt-2 italic">Podpowiedź: Upewnij się, że uzupełniłeś preferencje w swoim profilu.</p>
-                </div>`;
+            grid.innerHTML = `<p class="col-span-full text-center text-red-500">Błąd: ${e.message}</p>`;
         }
     }
 
-    // ✅ RENDEROWANIE W STYLU HOME
     function renderRecommendations(data, grid) {
         grid.innerHTML = "";
-
-        if(!data.recommendations || data.recommendations.length === 0) {
-            grid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-500">Brak rekomendacji. Oceń więcej filmów lub wypełnij preferencje.</div>`;
-            return;
-        }
-
         data.recommendations.forEach(m => {
-            // Mapowanie confidence na kolory i polskie nazwy
-            let confidenceClass = '';
-            let confidenceText = '';
+            let confidenceClass = m.confidence === 'bardzo wysoka' ? 'bg-green-600/90' : 
+                                 m.confidence === 'wysoka' ? 'bg-blue-600/90' : 'bg-yellow-600/90';
+            let confidenceText = m.confidence === 'bardzo wysoka' ? 'BARDZO POLECAM' : 
+                                 m.confidence === 'wysoka' ? 'POLECAM' : 'WARTO SPRAWDZIĆ';
 
-            if (m.confidence === 'bardzo wysoka') {
-                confidenceClass = 'bg-green-600/90';
-                confidenceText = 'BARDZO POLECAM';
-            } else if (m.confidence === 'wysoka') {
-                confidenceClass = 'bg-blue-600/90';
-                confidenceText = 'POLECAM';
-            } else if (m.confidence === 'średnia') {
-                confidenceClass = 'bg-yellow-600/90';
-                confidenceText = 'WARTO SPRAWDZIĆ';
-            } else {
-                confidenceClass = 'bg-gray-600/90';
-                confidenceText = 'MOŻE SIĘ SPODOBAĆ';
-            }
-
-            // Tworzenie karty (JAK HOME)
             const card = document.createElement('div');
             card.className = 'bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700 hover:border-blue-500 transition cursor-pointer transform hover:-translate-y-1 group';
             card.onclick = () => window.location.href = `/movie?id=${m.movie_id}`;
 
             card.innerHTML = `
-                <!-- POSTER (aspect-ratio 2:3 jak plakat) -->
                 <div class="relative aspect-[2/3]">
                     <img src="${m.poster_url || 'https://via.placeholder.com/300x450'}"
                          class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition"
                          alt="${m.title}">
-
-                    <!-- RATING (górny prawy róg) -->
-                    <div class="absolute top-2 right-2 bg-gray-900/80 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
-                        ★ ${m.predicted_rating}
+                    
+                    <div class="absolute top-2 right-2 bg-gray-900/90 backdrop-blur px-2 py-1 rounded text-xs font-bold text-yellow-400 border border-gray-600">
+                        ★ ${m.actual_rating.toFixed(1)}
                     </div>
 
-                    <!-- CONFIDENCE BADGE (dolny lewy) -->
+                    <div class="absolute top-2 left-2 bg-blue-600/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white border border-blue-400">
+                        Dopasowanie: ${m.match_percentage}%
+                    </div>
+
                     <div class="absolute bottom-2 left-2 ${confidenceClass} backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white border border-white/20">
                         ${confidenceText}
                     </div>
                 </div>
 
-                <!-- INFO -->
                 <div class="p-4">
-                    <!-- TYTUŁ (2 linie max) -->
                     <h3 class="font-bold text-white text-sm line-clamp-2 group-hover:text-blue-400 transition mb-2 leading-tight min-h-[2.5rem]">
                         ${m.title}
                     </h3>
-
-                    <!-- WYJAŚNIENIE (3 linie max) -->
                     <p class="text-xs text-gray-400 italic line-clamp-3 leading-relaxed min-h-[3rem]">
                         ${m.explanation}
                     </p>
-
-                    <!-- GATUNKI (opcjonalnie) -->
-                    ${m.genres && m.genres.length > 0 ? `
-                        <div class="flex flex-wrap gap-1 mt-3">
-                            ${m.genres.slice(0, 3).map(g =>
-                                `<span class="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">${g}</span>`
-                            ).join('')}
-                        </div>
-                    ` : ''}
+                    <div class="flex flex-wrap gap-1 mt-3">
+                        ${m.genres.slice(0, 3).map(g => `<span class="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">${g}</span>`).join('')}
+                    </div>
                 </div>
             `;
-
             grid.appendChild(card);
         });
     }
