@@ -38,7 +38,6 @@ class ANFISRecommender:
         return var
 
     def build_fuzzy_system(self):
-        """Naprawa błędu _rule_generator poprzez właściwą kolejność."""
         for a in self.aspect_names:
             self.input_variables[a] = self._create_membership_function(a, 'input')
         self.output_variable = self._create_membership_function('predicted_rating', 'output')
@@ -68,7 +67,6 @@ class ANFISRecommender:
         except Exception: return 0.5
 
     def evaluate(self, X_test, y_test) -> Dict:
-        """Dodano brakującą metodę ewaluacji."""
         from sklearn.metrics import mean_squared_error, mean_absolute_error
         preds = [self.predict(row.to_dict()) for _, row in X_test.iterrows()]
         rmse = np.sqrt(mean_squared_error(y_test, preds))
@@ -87,11 +85,8 @@ class ANFISRecommender:
         anfis_system = None
 
 def load_anfis_model():
-    """Funkcja ładowana przez main.py przy starcie serwera."""
     global anfis_system
-    
-    # Ścieżka do pliku .pkl (zakładamy, że jest w folderze app/ml/models/)
-    # __file__ to ścieżka do tego pliku (anfis_model.py)
+
     current_dir = os.path.dirname(__file__)
     model_path = os.path.join(current_dir, "models", "anfis_latest.pkl")
     
@@ -99,12 +94,11 @@ def load_anfis_model():
         try:
             with open(model_path, "rb") as f:
                 anfis_system = pickle.load(f)
-            print(f"✅ ANFIS: Załadowano model z {model_path}")
+            print(f"ANFIS: Załadowano model z {model_path}")
         except Exception as e:
-            print(f"❌ ANFIS: Błąd ładowania modelu: {e}")
+            print(f"ANFIS: Błąd ładowania modelu: {e}")
     else:
-        print(f"⚠️ ANFIS: Nie znaleziono pliku modelu w {model_path}")
+        print(f"ANFIS: Nie znaleziono pliku modelu w {model_path}")
 
 def get_anfis_model():
-    """Getter używany przez router do pobrania modelu."""
     return anfis_system
