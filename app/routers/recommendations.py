@@ -229,12 +229,13 @@ def predict_anfis_dynamic(user_id, movie_id, processor, top_3_keys):
         movie_input = processor.get_movie_input_for_anfis(movie_id, top_3_keys)
 
         if not user_input or not movie_input: return None
+        diff = abs(u_val - m_val)
 
         anfis_input = {}
         for i, key in enumerate(top_3_keys):
             u_val = user_input.get(f'u_{key}', 0.5)
             m_val = movie_input.get(f'm_{key}', 0.5)
-            match_score = 1.0 - abs(u_val - m_val)
+            match_score = np.exp(-5 * diff)
             anfis_input[f'match{i+1}'] = match_score
 
         if anfis_model:

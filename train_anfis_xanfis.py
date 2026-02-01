@@ -28,7 +28,7 @@ def main(epochs=20):
         return
 
     # small sample to test quickly
-    df = df.sample(n=min(2000, len(df)), random_state=42)
+    df = df.sample(n=min(20000, len(df)), random_state=42)
 
     feature_cols = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction']
     correlations = df[feature_cols].corrwith(df['target']).sort_values(ascending=False)
@@ -44,7 +44,7 @@ def main(epochs=20):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     print('Building XANFIS model...')
-    model = XANFISWrapper(n_inputs=3)
+    model = XANFISWrapper(n_inputs=3, n_mfs=3) 
 
     print('Training (this may take a while)...')
     history = model.fit(X_train, y_train, epochs=epochs, lr=1e-3, batch_size=64)
@@ -70,11 +70,12 @@ def main(epochs=20):
     # save model
     models_dir = 'app/ml/models'
     os.makedirs(models_dir, exist_ok=True)
-    model_path = os.path.join(models_dir, f'xanfis_model_{timestamp}.pkl')
-    model.save(model_path)
-    latest = os.path.join(models_dir, 'xanfis_latest.pkl')
-    model.save(latest)
-    print('Saved model:', model_path)
+    
+    # UŻYWAMY NOWEJ METODY ZAPISU WAG
+    latest_path = os.path.join(models_dir, 'xanfis_latest.pkl')
+    model.save_stable(latest_path, top_3=top_3)
+    
+    print('✅ Saved STABLE model weights to:', latest_path)
 
     # quick eval
     preds = model.predict(X_test)
@@ -89,4 +90,4 @@ def main(epochs=20):
 
 
 if __name__ == '__main__':
-    main(epochs=20)
+    main(epochs=100)

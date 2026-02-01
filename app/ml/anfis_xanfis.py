@@ -22,63 +22,48 @@ _model_candidates = None
 _candidates_tried = []
 
 def _find_anfis_module():
-    # common names to try directly
     names = ['x_anfis', 'xanfis', 'xanfis_torch', 'xanfis_pytorch', 'x-anfis', 'anfis', 'anfis_torch']
     for n in names:
         try:
             mod = importlib.import_module(n)
             return mod
         except Exception:
-            _candidates_tried.append(n)
-
-    # fallback: scan installed modules for any name containing 'anfis' or 'xanfis'
-    for finder, name, ispkg in pkgutil.iter_modules():
-        if 'anfis' in name.lower() or 'xanfis' in name.lower():
-            try:
-                mod = importlib.import_module(name)
-                return mod
-            except Exception:
-                _candidates_tried.append(name)
+            pass
     return None
 
-_model_candidates = _find_anfis_module()
+# KLUCZOWA LINIA: To tutaj definiujemy zmienną, której brakuje
+_xanfis_module = _find_anfis_module()
 
 
 class XANFISWrapper:
-    def __init__(self, n_inputs: int = 3, hidden_rules: Optional[int] = None, device: str = 'cpu'):
-        if _model_candidates is None:
-            raise ImportError('x-anfis library not found. Install x-anfis in the environment.')
-
-        # prefer gradient-based regressor if available
+    # Dodajemy n_mfs: int = 3 do listy parametrów
+    def __init__(self, n_inputs: int = 3, n_mfs: int = 3, device: str = 'cpu'):
+        if _xanfis_module is None:
+            raise ImportError('x-anfis library not found.')
+        
         self.device = device
         self.n_inputs = n_inputs
+        self.n_mfs = n_mfs  # Zapamiętujemy n_mfs
         self.model = None
 
-        # common class names from x-anfis
+        # Szukanie klasy regresora
         cls = None
-        for name in ('GdAnfisRegressor', 'GdAnfis', 'GdAnfisModel'):
-            cls = getattr(_model_candidates, name, None)
-            if cls is not None:
-                break
+        for name in ('GdAnfisRegressor', 'AnfisRegressor', 'GdAnfis', 'Anfis'):
+            cls = getattr(_xanfis_module, name, None)
+            if cls is not None: break
+        
         if cls is None:
-            # try classic regressor class name
-            for name in ('AnfisRegressor', 'Anfis'):
-                cls = getattr(_model_candidates, name, None)
-                if cls is not None:
-                    break
-        if cls is None:
-            raise ImportError('Could not find ANFIS regressor class in x-anfis package (checked common names).')
+            raise ImportError('Could not find ANFIS class in package.')
 
-        # instantiate with sensible defaults; the constructor signature can vary
+        # Przekazujemy n_mfs do instancji modelu biblioteki
         try:
-            # many implementations accept n_inputs or input_features
-            self.model = cls(n_inputs=self.n_inputs)
-        except Exception:
+            self.model = cls(n_inputs=self.n_inputs, n_mfs=self.n_mfs)
+        except TypeError:
+            # Jeśli biblioteka używa innej nazwy, np. n_rules
             try:
+                self.model = cls(n_inputs=self.n_inputs, n_rules=self.n_mfs)
+            except:
                 self.model = cls(self.n_inputs)
-            except Exception:
-                # last resort: call without args
-                self.model = cls()
 
     def fit(self, X, y, epochs: int = 50, lr: float = 1e-3, batch_size: int = 64, verbose: bool = True):
         """Fit model. Accepts pandas DataFrame / numpy arrays.
@@ -141,23 +126,28 @@ class XANFISWrapper:
         except Exception as e:
             raise RuntimeError('Could not call model.predict; inspect the model API') from e
 
-    def save(self, path: str):
-        # prefer model-specific save if available
-        if hasattr(self.model, 'save'):
-            try:
-                self.model.save(path)
-                return
-            except Exception:
-                pass
-        # fallback to pickle
-        with open(path, 'wb') as f:
-            pickle.dump(self.model, f)
+    def save_stable(self, path: str, top_3: list):
+        """Zapisuje wagi i metadane zamiast całego obiektu."""
+        import joblib
+        state = {
+            'model_state': self.model.network.state_dict(),
+            'n_inputs': self.n_inputs,
+            'top_3': top_3
+        }
+        joblib.dump(state, path)
 
     @staticmethod
-    def load(path: str):
-        # try pickle load
-        with open(path, 'rb') as f:
-            obj = pickle.load(f)
-        wrapper = object.__new__(XANFISWrapper)
-        wrapper.model = obj
+    def load_stable(path: str):
+        """Odbudowuje model z wag."""
+        import joblib
+        data = joblib.load(path)
+        wrapper = XANFISWrapper(n_inputs=data['n_inputs'])
+        
+        # Inicjalizacja sieci przed wczytaniem wag (dummy fit)
+        dummy_x = np.zeros((2, data['n_inputs']), dtype=np.float32)
+        dummy_y = np.zeros(2, dtype=np.float32)
+        wrapper.fit(dummy_x, dummy_y, epochs=0)
+        
+        wrapper.model.network.load_state_dict(data['model_state'])
+        wrapper.model.network.eval()
         return wrapper

@@ -16,20 +16,20 @@ from app.ml.anfis_pytorch_5layer import ANFIS5Layer
 
 def load_dataset(path):
     df = pd.read_csv(path)
-    # detect target: prefer 'rating' or 'target', else last numeric column
-    if 'rating' in df.columns:
-        y = df['rating'].values.astype(float)
-        X = df.drop(columns=['rating']).select_dtypes(include=[np.number]).values
-    elif 'target' in df.columns:
-        y = df['target'].values.astype(float)
-        X = df.drop(columns=['target']).select_dtypes(include=[np.number]).values
-    else:
-        # last numeric column as target
-        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if not num_cols:
-            raise ValueError('No numeric columns found in dataset')
-        y = df[num_cols[-1]].values.astype(float)
-        X = df[num_cols[:-1]].values.astype(float)
+    # Wybieramy tylko kolumny, które nas interesują
+    feature_cols = ['story', 'acting', 'visuals', 'sound', 'direction']
+    target_col = 'rating'
+    
+    # Sprawdzamy czy kolumny istnieją
+    X = df[feature_cols].values.astype(float)
+    y = df[target_col].values.astype(float)
+    
+    # Skalowanie targetu do zakresu 0-1 (jeśli oceny są 1-5)
+    # Model ANFIS najlepiej pracuje na wartościach znormalizowanych
+    y = (y - 1.0) / 4.0 
+    
+    print(f"✅ Wczytano {len(X)} próbek.")
+    print(f"Cechy: {feature_cols}")
     return X, y
 
 
