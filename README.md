@@ -41,8 +41,6 @@ System wykorzystuje model **Adaptive Neuro-Fuzzy Inference System**, który łą
 
 4.  **Baza Reguł:** Zgodnie z architekturą $3^3$, system operuje na **27 regułach logicznych** typu *IF-THEN*. Pozwala to na pełną interpretowalność – system dokładnie "wie", dlaczego dany film otrzymał konkretną notę.
 
-
-
 ---
 
 ## 3. Funkcjonalności Aplikacji
@@ -59,34 +57,96 @@ System wykorzystuje model **Adaptive Neuro-Fuzzy Inference System**, który łą
 
 ---
 
-## 4. Instalacja na nowym komputerze
+## 4. Wymagania Funkcjonalne
+
+### Moduł Zarządzania Użytkownikami
+* **WF-01:** Rejestracja Użytkownika
+* **WF-02:** Logowanie Użytkownika
+* **WF-03:** Wylogowanie Użytkownika
+* **WF-04:** Inicjalizacja Preferencji Użytkownika
+
+### Moduł Rekomendacji (ANFIS)
+* **WF-05:** Generowanie Rekomendacji Personalnych
+* **WF-06:** Wyjaśnienie Rekomendacji
+
+### Moduł Oceniania i Komentowania
+* **WF-07:** Dodawanie Oceny Filmu
+* **WF-08:** Dodawanie Komentarza
+* **WF-09:** Edycja i Usuwanie Własnego Komentarza
+
+### Moduł Wyszukiwania i Filtrowania
+* **WF-10:** Wyszukiwanie Filmów
+* **WF-11:** Filtrowanie Filmów po Gatunku
+
+### Moduł Rankingów Globalnych
+* **WF-13:** Wyświetlanie Rankingu Top 100
+* **WF-14:** Ranking z Podziałem na Cechy
+
+### Moduł Administracyjny
+* **WF-15:** Dodawanie Nowego Filmu (Admin)
+* **WF-16:** Edycja i Usuwanie Filmu (Admin)
+* **WF-17:** Moderacja Komentarzy (Admin)
+
+### Moduł Treningu Modeli
+* **WF-18:** Trenowanie Modelu ANFIS
+* **WF-19:** Trenowanie Modelu MLP (Baseline)
+* **WF-20:** Porównanie Modeli ANFIS vs MLP
+
+---
+
+## 5. Wymagania Niefunkcjonalne Systemu
+
+### Wydajność
+* **WNF-01:** Czas Odpowiedzi API
+* **WNF-02:** Czas Predykcji ANFIS
+* **WNF-03:** Wydajność Bazy Danych
+
+### Bezpieczeństwo
+* **WNF-07:** Hashowanie Haseł
+* **WNF-08:** Autoryzacja i Autentykacja
+
+### Niezawodność
+* **WNF-12:** Obsługa Błędów
+* **WNF-13:** Logowanie Zdarzeń
+
+### Użyteczność
+* **WNF-15:** Responsywność Interfejsu
+* **WNF-16:** Dostępność (Accessibility)
+* **WNF-17:** Czas Ładowania Strony
+
+### Utrzymywalność
+* **WNF-18:** Jakość Kodu
+* **WNF-19:** Struktura Projektu
+* **WNF-20:** Wersjonowanie i CI/CD
+
+### Skalowalność Modelu ML
+* **WNF-23:** Retrenowanie Modelu
+* **WNF-24:** A/B Testing Modeli
+
+---
+
+## 6. Instalacja na nowym komputerze
 
 Aby uruchomić aplikację lokalnie, wykonaj poniższe kroki:
 
 ### KROK 1: Pobranie kodu
 ```bash
-# Sklonuj repozytorium za pomocą Git
-git clone [https://github.com/gimroth/system-rekomendacji-filmow.git](https://github.com/gimroth/system-rekomendacji-filmow.git)
-
-# Wejdź do folderu projektu
+git clone https://github.com/gimroth/system-rekomendacji-filmow.git
 cd system-rekomendacji-filmow
 ```
 
 ### KROK 2: Przygotowanie środowiska
 ```bash
-# Stworzenie środowiska wirtualnego
 python -m venv .venv
 
 # Aktywacja (Windows)
 .venv\Scripts\activate
 
-# Instalacja bibliotek
 pip install -r requirements.txt
 ```
 
 ### KROK 3: Konfiguracja zmiennych (.env)
 Stwórz plik .env w głównym folderze i uzupełnij:
-
 ```bash
 DATABASE_URL=postgresql://uzytkownik:haslo@localhost:5432/nazwa_bazy
 TMDB_API_KEY=twoj_klucz_api_z_tmdb
@@ -95,19 +155,15 @@ ALGORITHM=HS256
 ```
 
 ### KROK 4: Inicjalizacja bazy i modeli
-
 ```bash
-# 1. Import danych z CSV i wzbogacenie danymi z TMDB
 python -m app.utils.data_management
 
-# 2. Wytrenowanie modeli ML
 python train_anfis.py
 python train_mlp.py
 python compare_models.py
 ```
 
 ### KROK 5: Uruchomienie aplikacji
-
 ```bash
 uvicorn app.main:app --reload
 ```
