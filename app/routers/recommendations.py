@@ -86,7 +86,7 @@ async def get_recommendations(
         db.rollback()
         user_features_all, base_top_3, source, preferred_genres = {}, ['story', 'acting', 'visuals'], 'default', []
 
-    # 3. POBIERZ KANDYDATÓW (Zintegrowane obliczanie średniej jak w movies.py)
+    # 3. POBIERZ KANDYDATÓW (Zintegrowane obliczanie średniej i filtracja braku ocen)
     try:
         # Najpierw podzapytanie o unikalne ID (Postgres fix)
         id_query = db.query(Movie.id)
@@ -101,12 +101,14 @@ async def get_recommendations(
         subquery = id_query.distinct().subquery()
 
         # Pobieramy pełne obiekty Movie + obliczamy średnią ocen dynamicznie
+        # Kluczowa zmiana: inner join na tabelę Rating lub HAVING count > 0
         candidates_raw = db.query(
             Movie,
-            func.coalesce(func.avg(Rating.rating), 0.0).label("average_rating")
-        ).outerjoin(Rating, Movie.id == Rating.movie_id) \
+            func.avg(Rating.rating).label("average_rating")
+        ).join(Rating, Movie.id == Rating.movie_id) \
          .filter(Movie.id.in_(subquery)) \
          .group_by(Movie.id) \
+         .having(func.count(Rating.id) > 0) \
          .order_by(func.random()) \
          .limit(200).all()
         
@@ -117,7 +119,7 @@ async def get_recommendations(
 
     if not candidates_raw:
         return RecommendationsResponse(user_id=real_user_id, user_ratings_count=ratings_count, model_used="anfis",
-                                       source=source, preferred_genres=preferred_genres, recommendations=[], message="Brak filmów.")
+                                       source=source, preferred_genres=preferred_genres, recommendations=[], message="Brak filmów spełniających kryteria.")
 
     # 4. SCORING I MAPOWANIE
     predictions = []
