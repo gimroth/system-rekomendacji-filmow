@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib
+import copy
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -104,17 +105,26 @@ def generate_analysis_dashboard(history, y_true, y_pred, feature_names, save_pat
     plt.close()
 
 
-def main(epochs=150):
+def main(epochs=1000):
     print("=" * 80)
-    print("TRAINING ANFIS (XANFIS WRAPPER) - REGRESSION TASK")
+    print("TRAINING ANFIS (XANFIS WRAPPER) - REGRESSION TASK (MERGED DATA)")
     print("=" * 80)
 
     db = SessionLocal()
     processor = DataProcessor(db)
-    df = processor.get_training_data()
+    df_db = processor.get_training_data()
+
+    try:
+        df_new = pd.read_csv('drugi_zbior_danych.csv')
+
+        df = pd.concat([df_db, df_new], axis=0, ignore_index=True)
+        print(f"Dataset Merged: DB({len(df_db)}) + CSV({len(df_new)}) = Total({len(df)})")
+    except FileNotFoundError:
+        print("Warning: 'drugi_zbior_danych.csv' not found. Using DB data only.")
+        df = df_db
 
     if df.empty:
-        print('Error: No data found in database.')
+        print('Error: No data found.')
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -122,7 +132,7 @@ def main(epochs=150):
     os.makedirs(results_dir, exist_ok=True)
     print(f"Results folder: {results_dir}")
 
-    df = df.sample(n=min(5000, len(df)), random_state=42)
+    df = df.sample(n=min(100000, len(df)), random_state=42)
     feature_cols = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction']
     top_3 = df[feature_cols].corrwith(df['target']).sort_values(ascending=False).head(3).index.tolist()
     feature_names = [f.replace('m_', '') for f in top_3]
@@ -141,7 +151,7 @@ def main(epochs=150):
         y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
 
         cv_model = XANFISWrapper(n_inputs=3, n_mfs=3)
-        cv_model.fit(X_fold_train, y_fold_train, epochs=30, lr=1e-3)
+        cv_model.fit(X_fold_train, y_fold_train, epochs=50, lr=1e-3)
 
         preds = cv_model.predict(X_fold_val)
         rmse_val = np.sqrt(mean_squared_error(y_fold_val, preds))
@@ -149,35 +159,27 @@ def main(epochs=150):
         print(f"   Fold {fold + 1} RMSE: {rmse_val:.4f}")
 
     avg_cv_rmse = np.mean(cv_scores)
-
     generate_cv_boxplot(cv_scores, os.path.join(results_dir, 'cross_validation.png'))
-    print("Saved: cross_validation.png")
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
 
     print(f'\nSTEP 2: Building and training final model...')
     model = XANFISWrapper(n_inputs=3, n_mfs=3)
 
-    print(f'   Building network (1 epoch for initialization)...')
+    print(f'   Initializing structure for MF plotting...')
     model.fit(X_train, y_train, epochs=1, lr=1e-4, batch_size=32)
 
-    print(f'   Saving initial network state...')
-    import copy
     initial_state = copy.deepcopy(model.model.network.state_dict())
-
-    print(f'   Plotting initial membership functions...')
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_before.png'))
+    print("Saved: mfs_before.png")
 
-    print(f'   Resetting network to initial state...')
     model.model.network.load_state_dict(initial_state)
-
     print(f'   Starting full training (lr=1e-4, epochs={epochs})...')
     history = model.fit(X_train, y_train, epochs=epochs, lr=1e-4, batch_size=32)
 
     print(f'\nSTEP 3: Generating reports and dashboards...')
-
-    print(f'   Plotting trained membership functions...')
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_after.png'))
+    print("Saved: mfs_after.png")
 
     preds = model.predict(X_test)
     y_test_np = np.asarray(y_test).flatten()
@@ -187,19 +189,12 @@ def main(epochs=150):
         history, y_test_np, preds_np, feature_names,
         os.path.join(results_dir, 'anfis_analysis.png')
     )
-    print("Saved: anfis_analysis.png")
 
     rmse = np.sqrt(mean_squared_error(y_test_np, preds_np))
     mae = mean_absolute_error(y_test_np, preds_np)
     r2 = r2_score(y_test_np, preds_np)
 
-    if rmse < 0.15:
-        quality = "EXCELLENT"
-    elif rmse < 0.25:
-        quality = "GOOD"
-    else:
-        quality = "AVERAGE"
-
+    quality = "EXCELLENT" if rmse < 0.15 else "GOOD" if rmse < 0.25 else "AVERAGE"
     model.save_stable(os.path.join('app/ml/models', 'xanfis_latest.pkl'), top_3=top_3)
 
     report = f"""
@@ -207,6 +202,10 @@ def main(epochs=150):
 TECHNICAL REPORT: XANFIS (REGRESSION)
 ================================================================================
 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+DATASET INFO:
+-------------
+Merged Database + CSV: {len(df)} total rows
 
 CROSS-VALIDATION RESULTS (3-FOLD):
 ----------------------------------
@@ -219,41 +218,15 @@ MAE:  {mae:.4f} (scale 0-1)
 R2:   {r2:.4f}
 
 Model Quality: {quality}
-
-PARAMETERS:
------------
-- Epochs: {epochs}
-- Inputs: {', '.join(feature_names)}
-- Loss Function: Mean Squared Error (MSE)
-
-ANFIS ARCHITECTURE (5 LAYERS):
--------------------------------
-Layer 1: Input Layer (3 inputs)
-Layer 2: Fuzzification (Gaussian MFs, 3 per input = 27 total)
-Layer 3: Rule Layer (Fuzzy AND operations)
-Layer 4: Normalization Layer
-Layer 5: Defuzzification (Linear output combination)
-
-GENERATED PLOTS:
-----------------
-1. anfis_analysis.png  -> Composite Dashboard (Loss, Scatter, Histogram)
-2. cross_validation.png -> Stability Boxplot
-3. mfs_before/after.png -> Membership Functions (Gaussian)
-
 ================================================================================
 """
 
     with open(os.path.join(results_dir, 'raport_techniczny.txt'), 'w', encoding='utf-8') as f:
         f.write(report)
 
-    print(f'\nFINAL REPORT:')
-    print(f'   RMSE: {rmse:.4f}')
-    print(f'   R2:   {r2:.4f}')
-    print(f'   Quality: {quality}')
-    print(f'Output folder: {results_dir}')
-    print("=" * 80)
+    print(f'\nFINAL REPORT SAVED TO: {results_dir}')
     db.close()
 
 
 if __name__ == '__main__':
-    main(epochs=150)
+    main(epochs=1000)
