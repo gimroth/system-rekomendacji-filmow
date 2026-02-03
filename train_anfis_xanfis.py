@@ -115,7 +115,7 @@ def main(epochs=1000):
     df_db = processor.get_training_data()
 
     try:
-        df_new = pd.read_csv('drugi_zbior_danych.csv')
+        df_new = pd.read_csv('anfis_synthetic.csv')
 
         df = pd.concat([df_db, df_new], axis=0, ignore_index=True)
         print(f"Dataset Merged: DB({len(df_db)}) + CSV({len(df_new)}) = Total({len(df)})")
