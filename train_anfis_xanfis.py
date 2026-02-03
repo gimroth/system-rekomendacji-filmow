@@ -158,13 +158,25 @@ def main(epochs=150):
     print(f'\nSTEP 2: Building and training final model...')
     model = XANFISWrapper(n_inputs=3, n_mfs=3)
 
+    print(f'   Building network (1 epoch for initialization)...')
+    model.fit(X_train, y_train, epochs=1, lr=1e-4, batch_size=32)
+
+    print(f'   Saving initial network state...')
+    import copy
+    initial_state = copy.deepcopy(model.model.network.state_dict())
+
+    print(f'   Plotting initial membership functions...')
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_before.png'))
 
-    print(f'   Starting training (lr=1e-4, epochs={epochs})...')
+    print(f'   Resetting network to initial state...')
+    model.model.network.load_state_dict(initial_state)
+
+    print(f'   Starting full training (lr=1e-4, epochs={epochs})...')
     history = model.fit(X_train, y_train, epochs=epochs, lr=1e-4, batch_size=32)
 
     print(f'\nSTEP 3: Generating reports and dashboards...')
 
+    print(f'   Plotting trained membership functions...')
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_after.png'))
 
     preds = model.predict(X_test)

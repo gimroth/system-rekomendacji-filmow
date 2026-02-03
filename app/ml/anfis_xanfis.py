@@ -41,6 +41,7 @@ class LossCapture:
     def flush(self):
         self.original_stdout.flush()
 
+
 def _find_anfis_module():
     names = ['x_anfis', 'xanfis', 'xanfis_torch', 'anfis']
     for n in names:
@@ -74,12 +75,6 @@ class XANFISWrapper:
         self.model.n_inputs = self.n_inputs
         self.model.n_mfs = self.n_mfs
         self.model.size_output = 1
-
-        if hasattr(self.model, 'build_model'):
-            try:
-                self.model.build_model()
-            except Exception as e:
-                print(f"Warning: Could not build model: {e}")
 
     def fit(self, X, y, epochs: int = 150, lr: float = 1e-4, batch_size: int = 32):
         X_np = X.values.astype(np.float32) if hasattr(X, 'values') else np.asarray(X, dtype=np.float32)
@@ -165,16 +160,80 @@ class XANFISWrapper:
         return np.asarray(preds).flatten()
 
     def plot_mfs(self, save_path=None):
-        if self.model and hasattr(self.model, 'network'):
+        if self.model and hasattr(self.model, 'network') and self.model.network is not None:
             try:
-                plt.figure(figsize=(10, 6))
                 if hasattr(self.model.network, 'plot_mfs'):
+                    plt.figure(figsize=(10, 6))
                     self.model.network.plot_mfs()
                     if save_path:
                         plt.savefig(save_path)
                         plt.close()
+                        print(f"Saved MF plot: {save_path}")
+                    return
+
+                print(f"Attempting manual MF plotting...")
+                self._manual_plot_mfs(save_path)
+
             except Exception as e:
                 print(f"Warning: Could not plot MFs: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"Warning: Model network not built yet. Train the model first before plotting MFs.")
+
+    def _manual_plot_mfs(self, save_path=None):
+        try:
+            import torch
+
+            if hasattr(self.model.network, 'memberships'):
+                memberships_list = self.model.network.memberships
+            else:
+                print(f"ERROR: Could not find memberships")
+                return
+
+            x = torch.linspace(0, 1, 200).unsqueeze(1)
+
+            fig, axes = plt.subplots(1, self.n_inputs, figsize=(15, 4))
+            if self.n_inputs == 1:
+                axes = [axes]
+
+            for i in range(self.n_inputs):
+                ax = axes[i]
+
+                if i < len(memberships_list):
+                    mf_module = memberships_list[i]
+
+                    mu_vals = mf_module(x).detach().numpy()
+
+                    print(f"Feature {i + 1}: MF output shape {mu_vals.shape}")
+
+                    labels = ['Low', 'Medium', 'High']
+                    for j in range(min(mu_vals.shape[1], self.n_mfs)):
+                        ax.plot(x.numpy().flatten(), mu_vals[:, j], linewidth=2.5,
+                                label=labels[j] if j < len(labels) else f'MF{j + 1}')
+
+                ax.set_xlabel(f'Input {i + 1}', fontsize=11, fontweight='bold')
+                ax.set_ylabel('Membership Degree', fontsize=11)
+                ax.set_title(f'Feature {i + 1}', fontsize=12, fontweight='bold')
+                ax.legend(loc='upper right')
+                ax.grid(True, alpha=0.3)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(-0.05, 1.1)
+
+            plt.suptitle('Membership Functions (Gaussian)', fontsize=14, fontweight='bold', y=1.02)
+            plt.tight_layout()
+
+            if save_path:
+                plt.savefig(save_path, dpi=150, bbox_inches='tight')
+                plt.close()
+                print(f"Saved MF plot: {save_path}")
+            else:
+                plt.show()
+
+        except Exception as e:
+            print(f"Warning: Manual MF plotting failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     def save_stable(self, path: str, top_3: list):
         state = {
