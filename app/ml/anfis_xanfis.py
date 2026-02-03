@@ -4,113 +4,163 @@ import numpy as np
 import torch
 import importlib
 import matplotlib.pyplot as plt
+import inspect
+import sys
+from io import StringIO
+
+
+class LossCapture:
+    def __init__(self):
+        self.train_losses = []
+        self.val_losses = []
+        self.original_stdout = sys.stdout
+
+    def __enter__(self):
+        sys.stdout = self
+        return self
+
+    def __exit__(self, *args):
+        sys.stdout = self.original_stdout
+
+    def write(self, text):
+        self.original_stdout.write(text)
+        if 'Train Loss:' in text and 'Validation Loss:' in text:
+            parts = text.split(',')
+            for part in parts:
+                if 'Train Loss:' in part:
+                    try:
+                        self.train_losses.append(float(part.split(':')[1].strip()))
+                    except:
+                        pass
+                if 'Validation Loss:' in part:
+                    try:
+                        self.val_losses.append(float(part.split(':')[1].strip()))
+                    except:
+                        pass
+
+    def flush(self):
+        self.original_stdout.flush()
 
 def _find_anfis_module():
     names = ['x_anfis', 'xanfis', 'xanfis_torch', 'anfis']
     for n in names:
-        try: return importlib.import_module(n)
-        except: pass
+        try:
+            return importlib.import_module(n)
+        except:
+            pass
     return None
+
 
 _xanfis_module = _find_anfis_module()
 
+
 class XANFISWrapper:
     def __init__(self, n_inputs: int = 3, n_mfs: int = 4, device: str = 'cpu'):
-        if _xanfis_module is None: 
+        if _xanfis_module is None:
             raise ImportError('Biblioteka xanfis nie została znaleziona.')
-        
+
         self.device, self.n_inputs, self.n_mfs = device, n_inputs, n_mfs
         cls = getattr(_xanfis_module, 'GdAnfisRegressor', None)
         if cls is None:
             for name in ('AnfisRegressor', 'GdAnfis', 'Anfis'):
                 cls = getattr(_xanfis_module, name, None)
-                if cls is not None: break
-        
+                if cls is not None:
+                    break
+
         if cls is None:
             raise ImportError('Nie znaleziono odpowiedniej klasy ANFIS.')
 
-        # Bezpieczna inicjalizacja
         self.model = cls()
         self.model.n_inputs = self.n_inputs
         self.model.n_mfs = self.n_mfs
         self.model.size_output = 1
-        
-        # Wymuszenie budowy modelu
+
         if hasattr(self.model, 'build_model'):
             try:
                 self.model.build_model()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not build model: {e}")
 
     def fit(self, X, y, epochs: int = 150, lr: float = 1e-4, batch_size: int = 32):
         X_np = X.values.astype(np.float32) if hasattr(X, 'values') else np.asarray(X, dtype=np.float32)
         y_np = np.asarray(y, dtype=np.float32).reshape(-1, 1)
-        
-        print(f"🔧 DEBUG WRAPPER: Wymuszanie {epochs} epok na obiekcie modelu...")
 
-        # --- FIX: FORSOWNE USTAWIANIE EPOK ---
-        if hasattr(self.model, 'epochs'): self.model.errors = epochs
-        self.model.epochs = epochs
-        self.model.n_epochs = epochs
-        self.model.max_epochs = epochs
-        self.model.train_iters = epochs
-        
-        # --- FIX BŁĘDU: Zabezpieczenie przed brakiem optymalizatora ---
-        # Sprawdzamy czy optimizer w ogóle istnieje (is not None)
+        print(f"Training with: epochs={epochs}, lr={lr}, batch_size={batch_size}")
+
+        if hasattr(self.model, 'n_epochs'):
+            self.model.n_epochs = epochs
+        elif hasattr(self.model, 'max_epochs'):
+            self.model.max_epochs = epochs
+        elif hasattr(self.model, 'epochs'):
+            self.model.epochs = epochs
+
         if hasattr(self.model, 'optimizer') and self.model.optimizer is not None:
             try:
                 for param_group in self.model.optimizer.param_groups:
                     param_group['lr'] = lr
-            except:
-                pass # Jeśli struktura optimizera jest inna, ignorujemy
+            except Exception as e:
+                print(f"Warning: Could not set learning rate: {e}")
 
         fit_result = None
-        if hasattr(self.model, 'fit'):
-            # PRÓBA 1: Standardowa
+
+        sig = inspect.signature(self.model.fit)
+        params = sig.parameters
+
+        loss_capture = LossCapture()
+
+        with loss_capture:
             try:
-                fit_result = self.model.fit(X_np, y_np, epochs=epochs, lr=lr, batch_size=batch_size)
-            except TypeError:
-                # PRÓBA 2: Parametr n_epochs
-                try:
+                if 'epochs' in params:
+                    fit_result = self.model.fit(X_np, y_np, epochs=epochs, lr=lr, batch_size=batch_size)
+                elif 'n_epochs' in params:
                     fit_result = self.model.fit(X_np, y_np, n_epochs=epochs, lr=lr, batch_size=batch_size)
-                except TypeError:
-                    # PRÓBA 3: Argumenty pozycyjne
-                    try:
-                        fit_result = self.model.fit(X_np, y_np, epochs)
-                    except:
-                        # Ostatnia deska ratunku
-                        fit_result = self.model.fit(X_np, y_np)
-
-        # --- EKSTRAKCJA HISTORII BŁĘDÓW ---
-        history = {'loss': []}
-
-        # 1. Sprawdź atrybut .errors
-        if hasattr(self.model, 'errors') and self.model.errors:
-            raw_errors = self.model.errors
-            # Spłaszczanie listy jeśli trzeba
-            if isinstance(raw_errors, list):
-                if len(raw_errors) > 0 and isinstance(raw_errors[0], list):
-                     history['loss'] = [e[0] for e in raw_errors]
                 else:
-                    history['loss'] = raw_errors
-        
-        # 2. Sprawdź słownik zwrotny
-        elif isinstance(fit_result, dict) and 'loss' in fit_result:
-            history = fit_result
-            
-        # 3. Sprawdź listę zwrotną
-        elif isinstance(fit_result, list):
-            history['loss'] = fit_result
-        
-        # Obcinanie historii do żądanej liczby epok
-        if len(history['loss']) > epochs:
-            history['loss'] = history['loss'][:epochs]
+                    fit_result = self.model.fit(X_np, y_np)
+            except Exception as e:
+                print(f"Warning during fit: {e}")
+                fit_result = self.model.fit(X_np, y_np)
+
+        history = {
+            'train_loss': loss_capture.train_losses,
+            'val_loss': loss_capture.val_losses
+        }
+
+        if len(history['train_loss']) == 0:
+            old_history = self._extract_loss_history(fit_result, epochs)
+            if old_history['loss']:
+                history['train_loss'] = old_history['loss']
 
         return history
 
+    def _extract_loss_history(self, fit_result, max_epochs):
+        if hasattr(self.model, 'errors') and self.model.errors:
+            errors = self.model.errors
+            if isinstance(errors, list) and errors:
+                loss_list = [e[0] if isinstance(e, list) else e for e in errors]
+                return {'loss': loss_list[:max_epochs]}
+
+        if isinstance(fit_result, dict):
+            return {'loss': fit_result.get('loss', [])[:max_epochs]}
+        elif isinstance(fit_result, list):
+            return {'loss': fit_result[:max_epochs]}
+
+        return {'loss': []}
+
     def predict(self, X):
-        X_np = np.asarray(X, dtype=np.float32) if not isinstance(X, dict) else \
-               np.array([[X.get(f'match{i+1}', 0.5) for i in range(self.n_inputs)]], dtype=np.float32)
+        if isinstance(X, dict):
+            X_np = np.array([[X.get(f'match{i + 1}', 0.5) for i in range(self.n_inputs)]], dtype=np.float32)
+        else:
+            X_np = np.asarray(X, dtype=np.float32)
+
+        if X_np.ndim == 1:
+            X_np = X_np.reshape(1, -1)
+
+        if X_np.shape[1] != self.n_inputs:
+            raise ValueError(f"Expected {self.n_inputs} features, got {X_np.shape[1]}")
+
+        if np.isnan(X_np).any():
+            raise ValueError("Input contains NaN values")
+
         preds = self.model.predict(X_np)
         return np.asarray(preds).flatten()
 
@@ -123,8 +173,8 @@ class XANFISWrapper:
                     if save_path:
                         plt.savefig(save_path)
                         plt.close()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not plot MFs: {e}")
 
     def save_stable(self, path: str, top_3: list):
         state = {
@@ -139,7 +189,7 @@ class XANFISWrapper:
     def load_stable(path: str):
         data = joblib.load(path)
         wrapper = XANFISWrapper(n_inputs=data['n_inputs'], n_mfs=data.get('n_mfs', 4))
-        wrapper.fit(np.zeros((2, data['n_inputs'])), np.zeros(2), epochs=1) 
+        wrapper.fit(np.zeros((2, data['n_inputs'])), np.zeros(2), epochs=1)
         wrapper.model.network.load_state_dict(data['model_state'])
         wrapper.model.network.eval()
         return wrapper
