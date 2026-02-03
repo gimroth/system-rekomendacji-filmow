@@ -197,6 +197,27 @@ def main(epochs=1000):
     quality = "EXCELLENT" if rmse < 0.15 else "GOOD" if rmse < 0.25 else "AVERAGE"
     model.save_stable(os.path.join('app/ml/models', 'xanfis_latest.pkl'), top_3=top_3)
 
+    rules_text = ""
+    try:
+        if hasattr(model.model.network, 'consequents'):
+            params = model.model.network.consequents.coeff.detach().numpy()
+            mfs_labels = ['Low', 'Medium', 'High']
+
+            import itertools
+            combinations = list(itertools.product(mfs_labels, repeat=3))
+            
+            rules_text = "LIST OF 27 FUZZY RULES (TSK Linear Consequents):\n"
+            rules_text += "-" * 60 + "\n"
+            
+            for i, (combo, coeff) in enumerate(zip(combinations, params)):
+                p, q, r, bias = coeff
+                rules_text += f"RULE {i+1:02d}: IF (m1 is {combo[0]}) AND (m2 is {combo[1]}) AND (m3 is {combo[2]})\n"
+                rules_text += f"         THEN Out = ({p:.3f}*m1) + ({q:.3f}*m2) + ({r:.3f}*m3) + ({bias:.3f})\n\n"
+        else:
+            rules_text = "Could not extract rules: Consequent layer not found.\n"
+    except Exception as e:
+        rules_text = f"Error during rule extraction: {str(e)}\n"
+
     report = f"""
 ================================================================================
 TECHNICAL REPORT: XANFIS (REGRESSION)
@@ -218,6 +239,8 @@ MAE:  {mae:.4f} (scale 0-1)
 R2:   {r2:.4f}
 
 Model Quality: {quality}
+
+{rules_text}
 ================================================================================
 """
 
@@ -229,4 +252,4 @@ Model Quality: {quality}
 
 
 if __name__ == '__main__':
-    main(epochs=1000)
+    main(epochs=500)

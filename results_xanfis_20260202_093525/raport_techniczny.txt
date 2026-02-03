@@ -1,5 +1,0 @@
-RAPORT TECHNICZNY ANFIS
-Epoki: 150
-Średni CV RMSE: 0.0887
-Finalny RMSE: 0.0892
-Finalny R2: 0.8795
