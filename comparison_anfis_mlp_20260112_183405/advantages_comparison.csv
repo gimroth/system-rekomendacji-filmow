@@ -1,9 +1,0 @@
-Aspekt,ANFIS,MLP,Zwycięzca
-Dokładność (MAE),0.40⭐,0.22⭐ 🏆,🏆 MLP
-Dokładność (RMSE),0.48⭐,0.29⭐ 🏆,🏆 MLP
-Interpretowalność,✅ Wysoka (reguły),❌ Niska (black box),🏆 ANFIS
-Cold Start,✅ Działa (formularz),❌ Nie działa,🏆 ANFIS
-Wyjaśnialność,✅ Łatwe,❌ Trudne,🏆 ANFIS
-Czas treningu,✅ Szybki (~10s),⚠️ Średni (~20s),🏆 ANFIS
-Zaufanie użytkownika,✅ Wyższe,⚠️ Niższe,🏆 ANFIS
-Debugowanie,✅ Łatwe,❌ Trudne,🏆 ANFIS

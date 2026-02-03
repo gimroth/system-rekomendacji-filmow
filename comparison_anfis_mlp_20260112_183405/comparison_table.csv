@@ -1,7 +1,0 @@
-Metryka,ANFIS,MLP,Różnica,Zwycięzca
-MAE (0-1),0.0999,0.0553,44.6%,🏆 MLP
-RMSE (0-1),0.1200,0.0728,39.3%,🏆 MLP
-MAE (gwiazdki),0.40⭐,0.22⭐,0.18⭐,🏆 MLP
-RMSE (gwiazdki),0.48⭐,0.29⭐,0.19⭐,🏆 MLP
-Epochs,1 (statyczny),45 (early stop),-,-
-Czas treningu,~10s,~20s,-,🏆 ANFIS

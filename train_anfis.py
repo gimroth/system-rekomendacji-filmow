@@ -27,17 +27,17 @@ print("=" * 80)
 # =============================================================================
 # KROK 1: Inicjalizacja
 # =============================================================================
-print("\n📊 KROK 1: Inicjalizacja")
+print("\n KROK 1: Inicjalizacja")
 print("-" * 80)
 
 db = SessionLocal()
 processor = DataProcessor(db)
-print("✅ Połączono z bazą")
+print(" Połączono z bazą")
 
 # =============================================================================
 # KROK 2: Ekstrakcja danych
 # =============================================================================
-print("\n📊 KROK 2: Ekstrakcja features")
+print("\n KROK 2: Ekstrakcja features")
 print("-" * 80)
 
 df = processor.get_training_data()
@@ -47,7 +47,7 @@ if df.empty:
     db.close()
     sys.exit(1)
 
-print(f"✅ Pobrano {len(df)} rekordów")
+print(f" Pobrano {len(df)} rekordów")
 """
 ROZBUDOWANY SKRYPT TRENOWANIA ANFIS Z DYNAMICZNYMI TOP 3
 Dodano: K-Fold cross-validation, metryki regresyjne (RMSE, MAE, R2), wykresy
@@ -79,15 +79,15 @@ def main(n_splits=5, max_samples=5000):
 
     db = SessionLocal()
     processor = DataProcessor(db)
-    print("✅ Połączono z bazą")
+    print(" Połączono z bazą")
 
     df = processor.get_training_data()
     if df.empty:
-        print("❌ Brak danych!")
+        print(" Brak danych!")
         db.close()
         sys.exit(1)
 
-    print(f"✅ Pobrano {len(df)} rekordów")
+    print(f" Pobrano {len(df)} rekordów")
 
     if len(df) > max_samples:
         print(f"⚡ Ograniczam do {max_samples} próbek")
@@ -166,7 +166,7 @@ def main(n_splits=5, max_samples=5000):
     cv_plot = os.path.join(results_dir, 'cv_metrics.png')
     plt.savefig(cv_plot, dpi=150)
     plt.close()
-    print(f"✅ CV metrics plot saved: {cv_plot}")
+    print(f" CV metrics plot saved: {cv_plot}")
 
     # Scatter all folds preds vs actuals
     plt.figure(figsize=(6, 6))
@@ -178,7 +178,7 @@ def main(n_splits=5, max_samples=5000):
     pa_plot = os.path.join(results_dir, 'pred_vs_actual.png')
     plt.savefig(pa_plot, dpi=150)
     plt.close()
-    print(f"✅ Pred vs Actual plot saved: {pa_plot}")
+    print(f" Pred vs Actual plot saved: {pa_plot}")
 
     # Train final model on full data and save
     print('\nTraining final model on full dataset...')
@@ -192,7 +192,7 @@ def main(n_splits=5, max_samples=5000):
     final_model.save(model_path)
     latest_path = os.path.join(models_dir, 'anfis_latest.pkl')
     final_model.save(latest_path)
-    print(f"✅ Final model saved: {model_path}")
+    print(f" Final model saved: {model_path}")
 
     # Save summary report
     report = {
@@ -206,7 +206,7 @@ def main(n_splits=5, max_samples=5000):
     import json
     with open(os.path.join(results_dir, 'training_summary.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2)
-    print(f"✅ Summary saved: {os.path.join(results_dir, 'training_summary.json')}")
+    print(f" Summary saved: {os.path.join(results_dir, 'training_summary.json')}")
 
     db.close()
 
