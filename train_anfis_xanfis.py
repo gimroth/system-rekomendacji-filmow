@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib
-# Wymuszenie trybu bezokienkowego (kluczowe dla zapisu plików na serwerze)
+# Force backend to Agg to prevent window opening errors on servers
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -16,116 +16,105 @@ from app.ml.data_processor import DataProcessor
 from app.ml.anfis_xanfis import XANFISWrapper
 
 # =============================================================================
-# FUNKCJE WIZUALIZACJI (STYL Z PLIKU REFERENCYJNEGO)
+# VISUALIZATION FUNCTIONS (Professional Style)
 # =============================================================================
 
-def generate_analysis_dashboard(history, y_true, y_pred, model, feature_names, save_path):
-    """Generuje zbiorczy dashboard (Loss, Scatter, Hist, MFs)."""
+def generate_analysis_dashboard(history, y_true, y_pred, feature_names, save_path):
+    """Generates a composite dashboard: Loss, Scatter, Histogram."""
     
-    # Przygotowanie danych
-    losses = history.get('loss', [])
+    # Extract loss data
+    losses = []
+    if isinstance(history, dict):
+        losses = history.get('loss', [])
+    elif isinstance(history, list):
+        losses = history
+        
     errors = y_pred - y_true
     
-    # Ustawienia wykresu
-    fig = plt.figure(figsize=(20, 15))
+    # Create figure with 3 subplots
+    fig = plt.figure(figsize=(20, 6))
     
-    # 1. KRZYWA UCZENIA (Training History)
-    plt.subplot(3, 3, 1)
-    if losses:
+    # 1. TRAINING HISTORY (Loss Curve) 
+    plt.subplot(1, 3, 1)
+    if len(losses) > 0:
         plt.plot(losses, label='Training Loss (MSE)', linewidth=2, color='tab:blue')
-        plt.xlabel('Epoka', fontsize=11)
+        plt.xlabel('Epoch', fontsize=11)
         plt.ylabel('Loss (MSE)', fontsize=11)
-        plt.title('Historia Treningu', fontsize=13, fontweight='bold')
+        plt.title('Training History', fontsize=13, fontweight='bold')
         plt.legend()
         plt.grid(True, alpha=0.3)
     else:
-        plt.text(0.5, 0.5, 'Brak historii treningu', ha='center', va='center')
+        plt.text(0.5, 0.5, 'No training history available', ha='center', va='center')
+        plt.title('Training History', fontsize=13, fontweight='bold')
 
-    # 2. PREDYKCJE VS RZECZYWISTE (Scatter)
-    plt.subplot(3, 3, 2)
+    # 2. PREDICTIONS VS ACTUALS (Scatter Plot)
+    plt.subplot(1, 3, 2)
     plt.scatter(y_true, y_pred, alpha=0.6, edgecolors='black', s=40, color='tab:green')
     
-    # Linia idealna 0-1
+    # Ideal fit line (0 to 1)
     min_val, max_val = 0, 1
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=3, label='Idealna predykcja')
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=3, label='Ideal Prediction')
     
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     r2 = r2_score(y_true, y_pred)
     
-    plt.xlabel('Prawdziwe (0-1)', fontsize=11)
-    plt.ylabel('Predykcje (0-1)', fontsize=11)
-    plt.title(f'Predykcje vs Rzeczywiste\nRMSE={rmse:.4f}, R2={r2:.4f}', fontsize=13, fontweight='bold')
+    plt.xlabel('Actual (0-1)', fontsize=11)
+    plt.ylabel('Predicted (0-1)', fontsize=11)
+    plt.title(f'Actual vs Predicted\nRMSE={rmse:.4f}, R2={r2:.4f}', fontsize=13, fontweight='bold')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.xlim(-0.05, 1.05)
     plt.ylim(-0.05, 1.05)
 
-    # 3. ROZKŁAD BŁĘDÓW (Histogram)
-    plt.subplot(3, 3, 3)
+    # 3. ERROR DISTRIBUTION (Histogram) 
+    plt.subplot(1, 3, 3)
     plt.hist(errors, bins=30, color='lightblue', edgecolor='black', alpha=0.8)
-    plt.axvline(x=0, color='red', linestyle='--', linewidth=2, label='Zero error')
+    plt.axvline(x=0, color='red', linestyle='--', linewidth=2, label='Zero Error')
     plt.axvline(x=np.mean(errors), color='orange', linestyle='-', linewidth=2, 
-                label=f'Średni błąd: {np.mean(errors):.4f}')
+                label=f'Mean Error: {np.mean(errors):.4f}')
     
     mae = mean_absolute_error(y_true, y_pred)
-    plt.xlabel('Błąd (Pred - True)', fontsize=11)
-    plt.ylabel('Liczba próbek', fontsize=11)
-    plt.title(f'Rozkład błędów\nMAE={mae:.4f}', fontsize=13, fontweight='bold')
+    plt.xlabel('Error (Pred - True)', fontsize=11)
+    plt.ylabel('Count', fontsize=11)
+    plt.title(f'Error Distribution\nMAE={mae:.4f}', fontsize=13, fontweight='bold')
     plt.legend()
     plt.grid(True, alpha=0.2)
-
-    # 4. FUNKCJE PRZYNALEŻNOŚCI (Próba wizualizacji)
-    # Próbujemy narysować MF w dolnych kafelkach, jeśli model na to pozwala
-    try:
-        # Hack: xanfis rysuje na aktywnym axes, więc spróbujmy aktywować subplot
-        if hasattr(model.model, 'network') and hasattr(model.model.network, 'plot_mfs'):
-            # Rysujemy MF w jednym z dolnych okienek (uproszczone)
-            ax = plt.subplot(3, 1, 3) # Zajmie cały dół
-            # Uwaga: xanfis może tworzyć własne figure, więc to jest ryzykowne,
-            # dlatego robimy to w bloku try
-            plt.title("Funkcje Przynależności (Warstwa 1)", fontsize=13, fontweight='bold')
-            # Tutaj niestety xanfis jest specyficzny, więc zostawiamy puste miejsce na opis
-            plt.text(0.5, 0.5, "Szczegółowy wykres MF zapisano w 'mfs_after.png'", 
-                     ha='center', va='center', fontsize=12)
-            plt.axis('off')
-    except:
-        pass
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 def generate_cv_boxplot(cv_scores, save_path):
-    """Generuje wykres pudełkowy z wyników Cross-Walidacji."""
-    plt.figure(figsize=(10, 6))
+    """Generates a boxplot for Cross-Validation stability."""
+    plt.figure(figsize=(8, 6))
     
-    data_to_plot = [cv_scores] # Oczekujemy listy RMSE
-    
-    bp = plt.boxplot(data_to_plot, positions=[1], widths=0.6, patch_artist=True)
+    # Boxplot
+    bp = plt.boxplot([cv_scores], positions=[1], widths=0.6, patch_artist=True)
     
     for patch in bp['boxes']:
         patch.set_facecolor('lightblue')
         
     plt.xticks([1], ['RMSE'])
-    plt.ylabel('Wartość błędu', fontsize=12)
-    plt.title('Stabilność modelu (Cross-Walidacja)', fontsize=14, fontweight='bold')
+    plt.ylabel('Error Value', fontsize=12)
+    plt.title('Model Stability (Cross-Validation)', fontsize=14, fontweight='bold')
     plt.grid(True, alpha=0.3, axis='y')
     
-    # Dodanie punktów poszczególnych foldów
+    # Overlay individual fold dots
     y = cv_scores
     x = np.random.normal(1, 0.04, size=len(y))
-    plt.plot(x, y, 'r.', alpha=0.5)
+    plt.plot(x, y, 'r.', alpha=0.6, markersize=10, label='Fold Result')
+    plt.legend()
     
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 # =============================================================================
-# GŁÓWNA PĘTLA
+# MAIN LOGIC
 # =============================================================================
 
 def main(epochs=150): 
     print("=" * 80)
-    print("TRENOWANIE ANFIS (XANFIS WRAPPER)")
+    print("TRAINING ANFIS (XANFIS WRAPPER) - REGRESSION TASK")
     print("=" * 80)
     
     db = SessionLocal()
@@ -133,28 +122,28 @@ def main(epochs=150):
     df = processor.get_training_data()
     
     if df.empty:
-        print('Błąd: Brak danych w bazie.')
+        print('Error: No data found in database.')
         return
 
-    # Folder na wyniki
+    # Create results directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = f'results_xanfis_{timestamp}'
     os.makedirs(results_dir, exist_ok=True)
-    print(f"📂 Folder wyników: {results_dir}")
+    print(f"📂 Results folder: {results_dir}")
 
-    # Przygotowanie danych
+    # Data Prep
     df = df.sample(n=min(30000, len(df)), random_state=42)
     feature_cols = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction']
     top_3 = df[feature_cols].corrwith(df['target']).sort_values(ascending=False).head(3).index.tolist()
     feature_names = [f.replace('m_', '') for f in top_3]
 
-    print(f"Wybrane cechy (Top 3): {feature_names}")
+    print(f"Selected Features (Top 3): {feature_names}")
 
     X = pd.DataFrame({f'match{i+1}': df[feat] for i, feat in enumerate(top_3)})
     y = df['target']
 
-    # --- KROK 1: CROSS-WALIDACJA (3-Fold) ---
-    print(f"\nKROK 1: Cross-Walidacja (3-Fold)...")
+    # --- STEP 1: CROSS-VALIDATION (3-Fold) ---
+    print(f"\nSTEP 1: Cross-Validation (3-Fold)...")
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     cv_scores = []
 
@@ -162,7 +151,7 @@ def main(epochs=150):
         X_fold_train, X_fold_val = X.iloc[train_idx], X.iloc[val_idx]
         y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
         
-        # Krótki trening dla sprawdzenia stabilności
+        # Short training for stability check
         cv_model = XANFISWrapper(n_inputs=3, n_mfs=3)
         cv_model.fit(X_fold_train, y_fold_train, epochs=30, lr=1e-3)
         
@@ -173,87 +162,83 @@ def main(epochs=150):
 
     avg_cv_rmse = np.mean(cv_scores)
     
-    # Generowanie wykresu Cross-Walidacji
+    # Generate CV Plot
     generate_cv_boxplot(cv_scores, os.path.join(results_dir, 'cross_validation.png'))
-    print("✅ Zapisano: cross_validation.png")
+    print("✅ Saved: cross_validation.png")
 
-    # --- KROK 2: TRENING FINALNY ---
+    # --- STEP 2: FINAL TRAINING ---
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
     
-    print(f'\nKROK 2: Budowa i trening modelu finalnego...')
+    print(f'\nSTEP 2: Building and training final model...')
     model = XANFISWrapper(n_inputs=3, n_mfs=3)
 
-    # Zapisz MF przed nauką (standardowa metoda xanfis)
+    # Save MFs before training 
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_before.png'))
 
-    print(f'   Rozpoczęcie treningu (lr=1e-4, epochs={epochs})...')
+    print(f'   Starting training (lr=1e-4, epochs={epochs})...')
     history = model.fit(X_train, y_train, epochs=epochs, lr=1e-4, batch_size=32)
 
-    # --- KROK 3: WIZUALIZACJA I RAPORTOWANIE ---
-    print(f'\nKROK 3: Generowanie raportów i wykresów...')
+    # --- STEP 3: VISUALIZATION & REPORTING ---
+    print(f'\nSTEP 3: Generating reports and dashboards...')
     
-    # Zapisz MF po nauce
+    # Save MFs after training
     model.plot_mfs(save_path=os.path.join(results_dir, 'mfs_after.png'))
 
-    # Predykcje
+    # Predictions
     preds = model.predict(X_test)
     y_test_np = np.asarray(y_test).flatten()
     preds_np = np.asarray(preds).flatten()
 
-    # GENEROWANIE DASHBOARDU (Loss + Scatter + Hist)
+    # GENERATE DASHBOARD
     generate_analysis_dashboard(
-        history, y_test_np, preds_np, model, feature_names,
+        history, y_test_np, preds_np, feature_names,
         os.path.join(results_dir, 'anfis_analysis.png')
     )
-    print("✅ Zapisano: anfis_analysis.png (Dashboard)")
+    print("✅ Saved: anfis_analysis.png (Full Dashboard)")
 
-    # Metryki
+    # Metrics
     rmse = np.sqrt(mean_squared_error(y_test_np, preds_np))
     mae = mean_absolute_error(y_test_np, preds_np)
     r2 = r2_score(y_test_np, preds_np)
 
-    # Skalowanie gwiazdkowe (dla człowieka)
-    rmse_stars = rmse * 4
-    mae_stars = mae * 4
+    # Quality Check
+    if rmse < 0.15: quality = "EXCELLENT"
+    elif rmse < 0.25: quality = "GOOD"
+    else: quality = "AVERAGE"
 
-    # Ocena jakości
-    if rmse < 0.15: quality = "BARDZO DOBRA"
-    elif rmse < 0.25: quality = "DOBRA"
-    else: quality = "ŚREDNIA"
-
-    # Zapis modelu
+    # Save Model
     model.save_stable(os.path.join('app/ml/models', 'xanfis_latest.pkl'), top_3=top_3)
     
-    # Raport tekstowy
+    # Technical Report
     report = f"""
 ================================================================================
-RAPORT: XANFIS (5-LAYER ARCHITECTURE)
+TECHNICAL REPORT: XANFIS (REGRESSION)
 ================================================================================
-Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-WYNIKI CROSS-WALIDACJI (3-FOLD):
---------------------------------
+CROSS-VALIDATION RESULTS (3-FOLD):
+----------------------------------
 RMSE: {avg_cv_rmse:.4f} +/- {np.std(cv_scores):.4f}
 
-WYNIKI NA ZBIORZE TESTOWYM:
----------------------------
-RMSE: {rmse:.4f} (skala 0-1)  ->  {rmse_stars:.2f} gwiazdek
-MAE:  {mae:.4f} (skala 0-1)  ->  {mae_stars:.2f} gwiazdek
+TEST SET RESULTS:
+-----------------
+RMSE: {rmse:.4f} (scale 0-1)
+MAE:  {mae:.4f} (scale 0-1)
 R2:   {r2:.4f}
 
-Ocena jakości modelu: {quality}
+Model Quality: {quality}
 
-PARAMETRY:
-----------
-- Epoki: {epochs}
-- Cechy wejściowe: {', '.join(feature_names)}
-- Struktura: 5 Warstw (Input -> MF -> Rules -> Norm -> Output)
+PARAMETERS:
+-----------
+- Epochs: {epochs}
+- Inputs: {', '.join(feature_names)}
+- Structure: 5 Layers (Input -> MF -> Rules -> Norm -> Output)
 
-PLIKI GRAFICZNE:
+GENERATED PLOTS:
 ----------------
-1. anfis_analysis.png  -> Zbiorczy dashboard (Krzywa uczenia, Scatter, Histogram)
-2. cross_validation.png -> Wykres stabilności (Boxplot)
-3. mfs_before/after.png -> Wykresy funkcji przynależności (Gauss)
+1. anfis_analysis.png  -> Composite Dashboard (Loss, Scatter, Histogram)
+2. cross_validation.png -> Stability Boxplot
+3. mfs_before/after.png -> Membership Functions (Gaussian)
 
 ================================================================================
 """
@@ -261,11 +246,11 @@ PLIKI GRAFICZNE:
     with open(os.path.join(results_dir, 'raport_techniczny.txt'), 'w', encoding='utf-8') as f:
         f.write(report)
 
-    print(f'\nRAPORT KOŃCOWY:')
+    print(f'\nFINAL REPORT:')
     print(f'   RMSE: {rmse:.4f}')
     print(f'   R2:   {r2:.4f}')
-    print(f'   Jakość: {quality}')
-    print(f'Wszystkie wyniki w: {results_dir}')
+    print(f'   Quality: {quality}')
+    print(f'Output folder: {results_dir}')
     print("=" * 80)
     db.close()
 

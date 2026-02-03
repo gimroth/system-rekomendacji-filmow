@@ -1,0 +1,31 @@
+
+================================================================================
+TECHNICAL REPORT: XANFIS (REGRESSION)
+================================================================================
+Date: 2026-02-03 02:32:40
+
+CROSS-VALIDATION RESULTS (3-FOLD):
+----------------------------------
+RMSE: 0.0881 +/- 0.0003
+
+TEST SET RESULTS:
+-----------------
+RMSE: 0.0887 (scale 0-1)
+MAE:  0.0693 (scale 0-1)
+R2:   0.8774
+
+Model Quality: EXCELLENT
+
+PARAMETERS:
+-----------
+- Epochs: 150
+- Inputs: direction, story, visuals
+- Structure: 5 Layers (Input -> MF -> Rules -> Norm -> Output)
+
+GENERATED PLOTS:
+----------------
+1. anfis_analysis.png  -> Composite Dashboard (Loss, Scatter, Histogram)
+2. cross_validation.png -> Stability Boxplot
+3. mfs_before/after.png -> Membership Functions (Gaussian)
+
+================================================================================
