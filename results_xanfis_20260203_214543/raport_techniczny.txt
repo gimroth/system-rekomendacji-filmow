@@ -1,0 +1,25 @@
+
+================================================================================
+TECHNICAL REPORT: XANFIS (REGRESSION)
+================================================================================
+Date: 2026-02-03 22:37:46
+
+DATASET INFO:
+-------------
+Merged Database + CSV: 30000 total rows
+
+CROSS-VALIDATION RESULTS (3-FOLD):
+----------------------------------
+RMSE: 0.0884 +/- 0.0005
+
+TEST SET RESULTS:
+-----------------
+RMSE: 0.0895 (scale 0-1)
+MAE:  0.0704 (scale 0-1)
+R2:   0.8818
+
+Model Quality: EXCELLENT
+
+Could not extract rules: Consequent layer not found.
+
+================================================================================

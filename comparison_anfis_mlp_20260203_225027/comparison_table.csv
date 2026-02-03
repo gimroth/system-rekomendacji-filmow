@@ -1,0 +1,5 @@
+Metryka,ANFIS,MLP
+MAE (0-1),0.0704,0.0544
+RMSE (0-1),0.0884,0.0694
+MAE (gwiazdki),0.2816,0.2176
+RMSE (gwiazdki),0.3536,0.2776

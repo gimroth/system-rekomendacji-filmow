@@ -348,13 +348,13 @@ PLIKI WYGENEROWANE:
 -------------------
 - Model: {model_path}
 - Wykresy: {results_dir}/
-- Raport: {os.path.join(results_dir, 'training_report.txt')}
+- Raport: {os.path.join(results_dir, 'raport_techniczny.txt')}
 
 ================================================================================
 """
 
 # Zapisz raport
-report_path = os.path.join(results_dir, 'training_report.txt')
+report_path = os.path.join(results_dir, 'raport_techniczny.txt')
 with open(report_path, 'w', encoding='utf-8') as f:
     f.write(report)
 

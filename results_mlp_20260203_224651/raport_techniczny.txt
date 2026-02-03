@@ -1,0 +1,54 @@
+
+================================================================================
+RAPORT TRENOWANIA MLP BASELINE
+================================================================================
+Data: 2026-02-03 22:46:53
+
+DANE:
+-----
+- Liczba rekordów: 5000
+- Unikalnych użytkowników: 2609
+- Unikalnych filmów: 2502
+- Średni rating: 0.646 (znormalizowany 0-1)
+
+CECHY:
+------
+Wszystkie 5 aspektów: m_story, m_acting, m_visuals, m_sound, m_direction
+
+PODZIAŁ DANYCH:
+---------------
+- Train: 4000 próbek (80.0%)
+- Test:  1000 próbek (20.0%)
+
+MODEL MLP:
+----------
+- Architektura: (64, 32, 16)
+- Activation: relu
+- Solver: adam
+- Epochs: 34 (max: 500)
+- Early stopping: True
+
+WYNIKI:
+-------
+Metryki (znormalizowane 0-1):
+  - RMSE: 0.0694
+  - MAE:  0.0544
+
+Metryki (skala 1-5):
+  - RMSE: 0.2777 gwiazdek
+  - MAE:  0.2176 gwiazdek
+
+Jakość modelu: EXCELLENT
+
+Interpretacja błędu MAE:
+  Średnio model myli się o 0.22 gwiazdki.
+  Przykład: Jeśli prawdziwy rating to 4.0⭐, 
+            model przewiduje średnio 3.78 - 4.22⭐
+
+PLIKI WYGENEROWANE:
+-------------------
+- Model: app/ml/models\mlp_v1_20260203_224651.pkl
+- Wykresy: results_mlp_20260203_224651/
+- Raport: results_mlp_20260203_224651\training_report.txt
+
+================================================================================

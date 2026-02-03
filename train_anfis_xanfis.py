@@ -105,7 +105,7 @@ def generate_analysis_dashboard(history, y_true, y_pred, feature_names, save_pat
     plt.close()
 
 
-def main(epochs=1000):
+def main(epochs=500):
     print("=" * 80)
     print("TRAINING ANFIS (XANFIS WRAPPER) - REGRESSION TASK (MERGED DATA)")
     print("=" * 80)
@@ -132,7 +132,7 @@ def main(epochs=1000):
     os.makedirs(results_dir, exist_ok=True)
     print(f"Results folder: {results_dir}")
 
-    df = df.sample(n=min(100000, len(df)), random_state=42)
+    df = df.sample(n=min(30000, len(df)), random_state=42)
     feature_cols = ['m_story', 'm_acting', 'm_visuals', 'm_sound', 'm_direction']
     top_3 = df[feature_cols].corrwith(df['target']).sort_values(ascending=False).head(3).index.tolist()
     feature_names = [f.replace('m_', '') for f in top_3]
@@ -151,7 +151,7 @@ def main(epochs=1000):
         y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
 
         cv_model = XANFISWrapper(n_inputs=3, n_mfs=3)
-        cv_model.fit(X_fold_train, y_fold_train, epochs=50, lr=1e-3)
+        cv_model.fit(X_fold_train, y_fold_train, epochs=30, lr=1e-3)
 
         preds = cv_model.predict(X_fold_val)
         rmse_val = np.sqrt(mean_squared_error(y_fold_val, preds))
@@ -205,13 +205,13 @@ def main(epochs=1000):
 
             import itertools
             combinations = list(itertools.product(mfs_labels, repeat=3))
-            
+
             rules_text = "LIST OF 27 FUZZY RULES (TSK Linear Consequents):\n"
             rules_text += "-" * 60 + "\n"
-            
+
             for i, (combo, coeff) in enumerate(zip(combinations, params)):
                 p, q, r, bias = coeff
-                rules_text += f"RULE {i+1:02d}: IF (m1 is {combo[0]}) AND (m2 is {combo[1]}) AND (m3 is {combo[2]})\n"
+                rules_text += f"RULE {i + 1:02d}: IF (m1 is {combo[0]}) AND (m2 is {combo[1]}) AND (m3 is {combo[2]})\n"
                 rules_text += f"         THEN Out = ({p:.3f}*m1) + ({q:.3f}*m2) + ({r:.3f}*m3) + ({bias:.3f})\n\n"
         else:
             rules_text = "Could not extract rules: Consequent layer not found.\n"
